@@ -56,10 +56,14 @@ def pull_latest(repo_path, branch):
     except subprocess.CalledProcessError:
         sys.exit(f"\n[!] GIT PULL FAILED: Merge conflict or network error in {repo_path}. Aborting.")
 
-def git_clone():
-    return 
-def git_checkout():
-    return
+def git_clone(url, repo_name, parent_dir):
+    """Clones a repository from the given URL to the specified parent directory."""
+    execute(f"Cloning {repo_name}", f"git clone {url} {repo_name}", cwd=parent_dir)
+    return parent_dir / repo_name
+
+def git_checkout(repo_path, branch):
+    """Checks out to the specified branch in the given repository path."""
+    execute(f"Checking out {branch} in {repo_path.name}", f"git checkout {branch}", cwd=repo_path)
 
 # --- Core Logic ---
 
@@ -112,7 +116,7 @@ def clone_and_checkout(repo_data):
     repo_path = parent_dir / repo_name
 
     if not repo_path.exists():
-        execute(f"Cloning {repo_name}", f"git clone {url} {repo_name}", cwd=parent_dir)
+        repo_path = git_clone(url, repo_name, parent_dir)
     else:
         # If it exists, pull latest changes
         pull_latest(repo_path, branch)
@@ -120,7 +124,7 @@ def clone_and_checkout(repo_data):
     # Save the basic info including URL and Branch
     update_repo_tracking(repo_name, repo_path=repo_path, github_url=url, branch=branch)
     
-    execute(f"Checking out {branch} in {repo_name}", f"git checkout {branch}", cwd=repo_path)
+    git_checkout(repo_path, branch)
     return repo_path, repo_name
 
 def deploy_docker(repo_path, repo_name, mode='dev'):
@@ -148,8 +152,9 @@ def run_all(config_file, mode='dev'):
     print(f"\n[+] All tasks completed successfully in {mode} mode!")
 
 if __name__ == "__main__":
-    # deploy_mode = sys.argv[1] if len(sys.argv) > 1 else 'dev'
-    # run_all('commands_2.json', mode=deploy_mode)
+    # pass
+    deploy_mode = sys.argv[1] if len(sys.argv) > 1 else 'dev'
+    run_all('commands_2.json', mode=deploy_mode)
     # repo_to_update = Path(__file__).resolve().parent.parent / "crud-api-mongodb"
     # pull_latest(repo_to_update,'main')
     # remove_image('sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e')
