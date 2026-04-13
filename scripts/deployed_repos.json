@@ -21,16 +21,16 @@
         "checkoutBranch": "main",
         "image": {
             "name": "crud-api-mongodb-app",
-            "id": "'sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e'"
+            "id": "'sha256:ffdf18be642c0cb5c7d3b2cf33767fa65f9a0ed9f482c3028800c39d0c15937a'"
         },
         "services": [
             {
                 "name": "app",
-                "id": "b5177fc5b250"
+                "id": "1fde484086c3"
             },
             {
                 "name": "mongodb",
-                "id": "58fefaf1d0a1"
+                "id": "cdbc877cdf17"
             }
         ]
     }
