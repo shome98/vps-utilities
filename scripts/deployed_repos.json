@@ -1,0 +1,37 @@
+[
+    {
+        "folder_name": "auth-api"
+    },
+    {
+        "folder_name": "af-pg-registry-api"
+    },
+    {
+        "folder_name": "api-factory-mongo"
+    },
+    {
+        "folder_name": "payments-subscriptions-api"
+    },
+    {
+        "folder_name": "af-client"
+    },
+    {
+        "folder_name": "crud-api-mongodb",
+        "folderPath": "D:\\Github_Codes\\clone-check\\crud-api-mongodb",
+        "githubUrl": "https://github.com/shome98/crud-api-mongodb.git",
+        "checkoutBranch": "main",
+        "image": {
+            "name": "crud-api-mongodb-app",
+            "id": "'sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e'"
+        },
+        "services": [
+            {
+                "name": "app",
+                "id": "b5177fc5b250"
+            },
+            {
+                "name": "mongodb",
+                "id": "58fefaf1d0a1"
+            }
+        ]
+    }
+]

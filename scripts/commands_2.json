@@ -1,0 +1,14 @@
+{
+    "repositories": [
+        {
+            "githubUrl": "https://github.com/shome98/crud-api-mongodb.git",
+            "checkoutBranch": "main"
+        }
+    ],
+    "installation_steps": [
+        {
+            "desc": "Check Docker Version",
+            "cmd": "docker --version"
+        }
+    ]
+}

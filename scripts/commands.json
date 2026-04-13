@@ -1,0 +1,30 @@
+{
+    "repositories": [
+        {
+            "githubUrl": "https://github.com/shome98/auth-api.git",
+            "checkoutBranch": "dev"
+        },
+        {
+            "githubUrl": "https://github.com/shome98/af-pg-registry-api.git",
+            "checkoutBranch": "dev"
+        },
+        {
+            "githubUrl": "https://github.com/shome98/api-factory-mongo.git",
+            "checkoutBranch": "dev"
+        },
+        {
+            "githubUrl": "https://github.com/shome98/payments-subscriptions-api.git",
+            "checkoutBranch": "dev"
+        },
+        {
+            "githubUrl": "https://github.com/shome98/af-client.git",
+            "checkoutBranch": "dev"
+        }
+    ],
+    "installation_steps": [
+        {
+            "desc": "Check Docker Version",
+            "cmd": "docker --version"
+        }
+    ]
+}
