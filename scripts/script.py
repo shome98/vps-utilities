@@ -59,11 +59,21 @@ def restart_service(container_id, container_name=None):
 
 def remove_image(image_id, image_name=None, force=False):
     """Removes a Docker image by ID or name. Prefers ID if provided."""
-    target = image_id if image_id else image_name
-    identifier = image_name if image_name else (
-        image_id[:12] if image_id else "unknown")
+    # Extract just the hash part, removing 'sha256:' prefix and any quotes
+    target = clean_image_id(image_id) if image_id else image_name
+    
+    identifier = image_name if image_name else (target[:12] if target else "unknown")
     flag = "-f" if force else ""
     execute(f"Removing image: {identifier}", f"docker rmi {flag} {target}")
+
+def clean_image_id(image_id):
+    """Cleans image ID by removing 'sha256:' prefix and quotes."""
+    if not image_id:
+        return image_id
+    clean_id = image_id.replace("'", "").replace('"', "")  # Remove quotes
+    if clean_id.startswith("sha256:"):
+        return clean_id.replace("sha256:", "", 1)
+    return clean_id
 
 # let's change it a bit so on change first stop the corresponding docker containers and then remove the old image then rebuild and update it in the json as well again
 # start it again as well, so it's ready to use right away
@@ -218,7 +228,9 @@ def get_deployment_details(repo_path):
                 if not primary_image:
                     img_id_cmd = f"docker inspect --format='{{{{.Image}}}}' {container_id}"
                     image_id = execute("", img_id_cmd, capture=True)
-                    primary_image = {"name": s.get("Image"), "id": image_id}
+                    # Clean the image ID by removing sha256: prefix and quotes
+                    cleaned_image_id = clean_image_id(image_id)
+                    primary_image = {"name": s.get("Image"), "id": cleaned_image_id}
 
                 services.append({"name": s.get("Service"), "id": container_id})
             except (json.JSONDecodeError, Exception):
