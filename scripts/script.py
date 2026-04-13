@@ -48,6 +48,13 @@ def stop_service(container_id, container_name=None):
         container_id[:12] if container_id else "unknown")
     execute(f"Stopping container: {identifier}", f"docker stop {target}")
 
+# add delete service as well with container_id or container_name
+def delete_service(container_id, container_name=None):
+    """Deletes a Docker container by ID or name. Prefers ID if provided."""
+    target = container_id if container_id else container_name
+    identifier = container_name if container_name else (
+        container_id[:12] if container_id else "unknown")
+    execute(f"Deleting container: {identifier}", f"docker rm {target}")
 
 def restart_service(container_id, container_name=None):
     """Restarts a Docker container by ID or name. Prefers ID if provided."""
@@ -102,6 +109,7 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev'):
             container_name = service.get('name')
             if container_id or container_name:
                 stop_service(container_id, container_name)
+                delete_service(container_id, container_name)
     else:
         print(f"  [2/5] No running containers to stop.")
 
