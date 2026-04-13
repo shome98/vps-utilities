@@ -82,6 +82,31 @@ def clean_image_id(image_id):
         return clean_id.replace("sha256:", "", 1)
     return clean_id
 
+def docker_build(repo_path, repo_name, mode='dev', no_cache=False):
+    """Builds Docker images using docker compose."""
+    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    
+    if not (repo_path / file_name).exists():
+        print(f"  [!] Skipping Docker build: {file_name} not found.")
+        return False
+    
+    cache_flag = "--no-cache" if no_cache else ""
+    cmd = f"docker compose -f {file_name} build {cache_flag}"
+    execute(f"Building {repo_name} ({mode})", cmd, cwd=repo_path)
+    return True
+
+def docker_start(repo_path, repo_name, mode='dev'):
+    """Starts Docker containers using docker compose."""
+    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    
+    if not (repo_path / file_name).exists():
+        print(f"  [!] Skipping Docker start: {file_name} not found.")
+        return False
+    
+    cmd = f"docker compose -f {file_name} up -d"
+    execute(f"Starting {repo_name} ({mode})", cmd, cwd=repo_path)
+    return True
+
 # let's change it a bit so on change first stop the corresponding docker containers and then remove the old image then rebuild and update it in the json as well again
 # start it again as well, so it's ready to use right away
 
@@ -127,9 +152,8 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev'):
 
     # Step 4: Rebuild and start containers
     print(f"  [4/5] Building new image and starting containers...")
-    cmd = f"docker compose -f {file_name} up -d --build"
-    execute(
-        f"Rebuilding and deploying {repo_name} ({mode})", cmd, cwd=repo_path)
+    docker_build(repo_path, repo_name, mode)
+    docker_start(repo_path, repo_name, mode)
 
     # Step 5: Update tracking with new image info and services
     print(f"  [5/5] Updating deployment tracking...")
@@ -306,8 +330,9 @@ def deploy_docker(repo_path, repo_name, mode='dev'):
         print(f"  [!] Skipping Docker: {file_name} not found.")
         return
 
-    cmd = f"docker compose -f {file_name} up -d --build"
-    execute(f"Deploying {repo_name} ({mode})", cmd, cwd=repo_path)
+    # Build and start using utility methods
+    docker_build(repo_path, repo_name, mode)
+    docker_start(repo_path, repo_name, mode)
 
     image_info, services = get_deployment_details(repo_path)
     update_repo_tracking(repo_name, image_info=image_info, services=services)
