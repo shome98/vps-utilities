@@ -33,47 +33,99 @@ def execute(desc, cmd, cwd=None, capture=False):
 
 # --- Docker Utilities ---
 
-def stop_service(target):
-    execute(f"Stopping: {target}", f"docker stop {target}")
+def stop_service(container_id, container_name=None):
+    """Stops a Docker container by ID or name. Prefers ID if provided."""
+    target = container_id if container_id else container_name
+    identifier = container_name if container_name else (container_id[:12] if container_id else "unknown")
+    execute(f"Stopping container: {identifier}", f"docker stop {target}")
 
-def restart_service(target):
-    execute(f"Restarting: {target}", f"docker restart {target}")
+def restart_service(container_id, container_name=None):
+    """Restarts a Docker container by ID or name. Prefers ID if provided."""
+    target = container_id if container_id else container_name
+    identifier = container_name if container_name else (container_id[:12] if container_id else "unknown")
+    execute(f"Restarting container: {identifier}", f"docker restart {target}")
 
-def remove_image(target, force=False):
+def remove_image(image_id, image_name=None, force=False):
+    """Removes a Docker image by ID or name. Prefers ID if provided."""
+    target = image_id if image_id else image_name
+    identifier = image_name if image_name else (image_id[:12] if image_id else "unknown")
     flag = "-f" if force else ""
-    execute(f"Removing image: {target}", f"docker rmi {flag} {target}")
+    execute(f"Removing image: {identifier}", f"docker rmi {flag} {target}")
 
+# let's change it a bit so on change first stop the corresponding docker containers and then remove the old image then rebuild and update it in the json as well again
+# start it again as well, so it's ready to use right away
 def docker_rebuild_image(repo_path, repo_name, mode='dev'):
-    """Rebuilds Docker image and updates deployment when changes are detected."""
+    """Rebuilds Docker image with proper container lifecycle management: stop -> remove old image -> rebuild -> start."""
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
     
     if not (repo_path / file_name).exists():
         print(f"  [!] Skipping Docker rebuild: {file_name} not found.")
         return False
     
-    print(f"--- Rebuilding Docker image for {repo_name} ({mode} mode) ---")
+    print(f"\n--- Rebuilding Docker image for {repo_name} ({mode} mode) ---")
+    
+    # Step 1: Get current image info before stopping containers
+    print(f"  [1/5] Capturing current deployment details...")
+    old_image_info, old_services = get_deployment_details(repo_path)
+    old_image_id = old_image_info.get('id', '') if old_image_info else ''
+    
+    # Step 2: Stop running containers
+    if old_services:
+        print(f"  [2/5] Stopping {len(old_services)} container(s)...")
+        for service in old_services:
+            container_id = service.get('id')
+            container_name = service.get('name')
+            if container_id or container_name:
+                stop_service(container_id, container_name)
+    else:
+        print(f"  [2/5] No running containers to stop.")
+    
+    # Step 3: Remove old image if it exists
+    if old_image_id:
+        old_image_name = old_image_info.get('name')
+        print(f"  [3/5] Removing old image...")
+        try:
+            remove_image(old_image_id, old_image_name, force=True)
+        except SystemExit:
+            print(f"  [!] Warning: Could not remove old image (may be in use by other containers). Continuing...")
+    else:
+        print(f"  [3/5] No old image to remove.")
+    
+    # Step 4: Rebuild and start containers
+    print(f"  [4/5] Building new image and starting containers...")
     cmd = f"docker compose -f {file_name} up -d --build"
     execute(f"Rebuilding and deploying {repo_name} ({mode})", cmd, cwd=repo_path)
     
-    # Update tracking with new image info and services
+    # Step 5: Update tracking with new image info and services
+    print(f"  [5/5] Updating deployment tracking...")
     image_info, services = get_deployment_details(repo_path)
     update_repo_tracking(repo_name, image_info=image_info, services=services)
+    
+    print(f"  [✓] Successfully rebuilt and deployed {repo_name}")
+    if image_info:
+        print(f"      New image: {image_info.get('name', 'N/A')}")
+    print(f"      Running services: {len(services)}")
+    
     return True
 
 def has_git_changes(repo_path):
-    """Checks if there are uncommitted changes or new commits in the repository."""
+    """Checks if there are uncommitted changes or if the repository was recently updated."""
     try:
-        # Check for uncommitted changes
+        # Check for uncommitted changes (modified, added, deleted files)
         status = execute("", "git status --porcelain", cwd=repo_path, capture=True)
         if status:
             return True
         
-        # Check if there are new commits after last pull
-        ahead_behind = execute("", "git rev-list HEAD..origin/HEAD --count", cwd=repo_path, capture=True)
-        # This is a simplified check; you may need to adjust based on your workflow
+        # Check if there are any commits that differ from the last known state
+        # Using git log to see if there are recent commits (last 24 hours)
+        recent_commits = execute("", "git log --oneline --since='24 hours ago' -1", cwd=repo_path, capture=True)
+        if recent_commits:
+            return True
+            
         return False
     except Exception:
-        return False
+        # If any check fails, assume changes exist to be safe
+        return True
 
 # --- Git Utilities ---
 
@@ -155,11 +207,23 @@ def clone_and_checkout(repo_data, mode='dev'):
         is_new_clone = True
         has_changes = True  # New clone always needs build
     else:
-        # If it exists, pull latest changes
-        has_changes_before = has_git_changes(repo_path)
+        # If it exists, get commit hash before pull
+        try:
+            commit_before = execute("", f"git rev-parse HEAD", cwd=repo_path, capture=True)
+        except:
+            commit_before = ""
+        
+        # Pull latest changes
         pull_latest(repo_path, branch)
-        has_changes_after = has_git_changes(repo_path)
-        has_changes = has_changes_before or has_changes_after
+        
+        # Get commit hash after pull
+        try:
+            commit_after = execute("", f"git rev-parse HEAD", cwd=repo_path, capture=True)
+        except:
+            commit_after = ""
+        
+        # Check if commit changed or if there are uncommitted changes
+        has_changes = (commit_before != commit_after) or has_git_changes(repo_path)
     
     # Save the basic info including URL and Branch
     update_repo_tracking(repo_name, repo_path=repo_path, github_url=url, branch=branch)
@@ -209,4 +273,4 @@ if __name__ == "__main__":
     run_all('commands_2.json', mode=deploy_mode)
     # repo_to_update = Path(__file__).resolve().parent.parent / "crud-api-mongodb"
     # pull_latest(repo_to_update,'main')
-    # remove_image('sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e')
+    # remove_image('sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e', image_name='old_image_name', force=True)
