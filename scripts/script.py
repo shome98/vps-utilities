@@ -43,6 +43,38 @@ def remove_image(target, force=False):
     flag = "-f" if force else ""
     execute(f"Removing image: {target}", f"docker rmi {flag} {target}")
 
+def docker_rebuild_image(repo_path, repo_name, mode='dev'):
+    """Rebuilds Docker image and updates deployment when changes are detected."""
+    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    
+    if not (repo_path / file_name).exists():
+        print(f"  [!] Skipping Docker rebuild: {file_name} not found.")
+        return False
+    
+    print(f"--- Rebuilding Docker image for {repo_name} ({mode} mode) ---")
+    cmd = f"docker compose -f {file_name} up -d --build"
+    execute(f"Rebuilding and deploying {repo_name} ({mode})", cmd, cwd=repo_path)
+    
+    # Update tracking with new image info and services
+    image_info, services = get_deployment_details(repo_path)
+    update_repo_tracking(repo_name, image_info=image_info, services=services)
+    return True
+
+def has_git_changes(repo_path):
+    """Checks if there are uncommitted changes or new commits in the repository."""
+    try:
+        # Check for uncommitted changes
+        status = execute("", "git status --porcelain", cwd=repo_path, capture=True)
+        if status:
+            return True
+        
+        # Check if there are new commits after last pull
+        ahead_behind = execute("", "git rev-list HEAD..origin/HEAD --count", cwd=repo_path, capture=True)
+        # This is a simplified check; you may need to adjust based on your workflow
+        return False
+    except Exception:
+        return False
+
 # --- Git Utilities ---
 
 def pull_latest(repo_path, branch):
@@ -107,7 +139,7 @@ def get_deployment_details(repo_path):
                 continue
     return primary_image, services
 
-def clone_and_checkout(repo_data):
+def clone_and_checkout(repo_data, mode='dev'):
     url = repo_data['githubUrl']
     branch = repo_data.get('checkoutBranch', 'main')
     repo_name = url.split('/')[-1].replace('.git', '')
@@ -115,17 +147,32 @@ def clone_and_checkout(repo_data):
     parent_dir = Path(__file__).resolve().parent.parent
     repo_path = parent_dir / repo_name
 
+    is_new_clone = False
+    has_changes = False
+    
     if not repo_path.exists():
         repo_path = git_clone(url, repo_name, parent_dir)
+        is_new_clone = True
+        has_changes = True  # New clone always needs build
     else:
         # If it exists, pull latest changes
+        has_changes_before = has_git_changes(repo_path)
         pull_latest(repo_path, branch)
+        has_changes_after = has_git_changes(repo_path)
+        has_changes = has_changes_before or has_changes_after
     
     # Save the basic info including URL and Branch
     update_repo_tracking(repo_name, repo_path=repo_path, github_url=url, branch=branch)
     
     git_checkout(repo_path, branch)
-    return repo_path, repo_name
+    
+    # Check if we need to rebuild Docker image
+    # For new clones or if there are changes, rebuild the image
+    if has_changes:
+        print(f"  [i] Changes detected in {repo_name}, rebuilding Docker image...")
+        docker_rebuild_image(repo_path, repo_name, mode)
+    
+    return repo_path, repo_name, has_changes
 
 def deploy_docker(repo_path, repo_name, mode='dev'):
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
@@ -143,8 +190,13 @@ def deploy_docker(repo_path, repo_name, mode='dev'):
 def run_all(config_file, mode='dev'):
     data = read_json(config_file)
     for repo in data.get('repositories', []):
-        repo_path, repo_name = clone_and_checkout(repo)
-        deploy_docker(repo_path, repo_name, mode=mode)
+        # clone_and_checkout now handles Docker rebuild automatically when changes are detected
+        repo_path, repo_name, has_changes = clone_and_checkout(repo, mode=mode)
+        
+        # Only deploy if not already handled by clone_and_checkout 
+        # (i.e., for existing repos without changes that still need to be running)
+        if not has_changes:
+            deploy_docker(repo_path, repo_name, mode=mode)
 
     for step in data.get('installation_steps', []):
         execute(step['desc'], step['cmd'])
