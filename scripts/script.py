@@ -4,6 +4,55 @@ import sys
 from pathlib import Path
 import shutil
 import os
+from enum import Enum
+
+# --- Emoji Definitions ---
+
+class Emoji(Enum):
+    """Emoji constants for consistent messaging throughout the script."""
+    # Status indicators
+    SUCCESS = "✅"
+    ERROR = "❌"
+    WARNING = "⚠️"
+    INFO = "ℹ️"
+    
+    # Process indicators
+    START = "🚀"
+    STOP = "🛑"
+    RESTART = "🔄"
+    BUILD = "🔨"
+    DEPLOY = "📦"
+    REBUILD = "🔧"
+    
+    # Git operations
+    CLONE = "📥"
+    PULL = "⬇️"
+    CHECKOUT = "🔀"
+    BRANCH = "🌿"
+    
+    # Docker operations
+    DOCKER = "🐳"
+    CONTAINER = "📦"
+    IMAGE = "🖼️"
+    START_CONTAINER = "▶️"
+    STOP_CONTAINER = "⏹️"
+    DELETE_CONTAINER = "🗑️"
+    
+    # File operations
+    FILE = "📄"
+    COPY = "📋"
+    SAVE = "💾"
+    FOLDER = "📁"
+    
+    # Checkmarks and indicators
+    CHECK = "✓"
+    ARROW = "➡️"
+    
+    # Other
+    GEAR = "⚙️"
+    TOOLS = "🛠️"
+    LINK = "🔗"
+    KEY = "🔑"
 
 # --- Utilities ---
 
@@ -26,7 +75,7 @@ def write_json(path, data):
 
 def execute(desc, cmd, cwd=None, capture=False):
     if not capture:
-        print(f"--- {desc} ---")
+        print(f"{Emoji.GEAR.value} {desc}")
     try:
         if capture:
             return subprocess.check_output(cmd, shell=True, cwd=cwd, text=True).strip()
@@ -35,7 +84,7 @@ def execute(desc, cmd, cwd=None, capture=False):
         if capture:
             return ""
         # Improved error reporting for git/docker failures
-        error_msg = f"\n[!] Error during: {desc}. Aborting."
+        error_msg = f"\n{Emoji.ERROR.value} Error during: {desc}. Aborting."
         if e.output:
             error_msg += f"\nDetails: {e.output}"
         sys.exit(error_msg)
@@ -48,22 +97,21 @@ def stop_service(container_id, container_name=None):
     target = container_id if container_id else container_name
     identifier = container_name if container_name else (
         container_id[:12] if container_id else "unknown")
-    execute(f"Stopping container: {identifier}", f"docker stop {target}")
+    execute(f"{Emoji.STOP_CONTAINER.value} Stopping container: {identifier}", f"docker stop {target}")
 
-# add delete service as well with container_id or container_name
 def delete_service(container_id, container_name=None):
     """Deletes a Docker container by ID or name. Prefers ID if provided."""
     target = container_id if container_id else container_name
     identifier = container_name if container_name else (
         container_id[:12] if container_id else "unknown")
-    execute(f"Deleting container: {identifier}", f"docker rm {target}")
+    execute(f"{Emoji.DELETE_CONTAINER.value} Deleting container: {identifier}", f"docker rm {target}")
 
 def restart_service(container_id, container_name=None):
     """Restarts a Docker container by ID or name. Prefers ID if provided."""
     target = container_id if container_id else container_name
     identifier = container_name if container_name else (
         container_id[:12] if container_id else "unknown")
-    execute(f"Restarting container: {identifier}", f"docker restart {target}")
+    execute(f"{Emoji.RESTART.value} Restarting container: {identifier}", f"docker restart {target}")
 
 
 def remove_image(image_id, image_name=None, force=False):
@@ -73,7 +121,7 @@ def remove_image(image_id, image_name=None, force=False):
     
     identifier = image_name if image_name else (target[:12] if target else "unknown")
     flag = "-f" if force else ""
-    execute(f"Removing image: {identifier}", f"docker rmi {flag} {target}")
+    execute(f"{Emoji.IMAGE.value} Removing image: {identifier}", f"docker rmi {flag} {target}")
 
 def clean_image_id(image_id):
     """Cleans image ID by removing 'sha256:' prefix and quotes."""
@@ -120,7 +168,7 @@ def copy_env_file_to_repo(env_file, repo_path):
     if env_path and env_path.exists():
         dest_env = repo_path / ".env"
         shutil.copy2(str(env_path), str(dest_env))
-        print(f"  [i] Copied env file to {dest_env}")
+        print(f"  {Emoji.COPY.value} Copied env file to {dest_env}")
         return str(dest_env)
     
     return None
@@ -135,7 +183,7 @@ def load_and_apply_env_file(env_file):
     if env_path and env_path.exists():
         env_vars = load_env_file(str(env_path))
         if env_vars:
-            print(f"  [i] Loaded {len(env_vars)} environment variables from {env_path}")
+            print(f"  {Emoji.KEY.value} Loaded {len(env_vars)} environment variables from {env_path}")
         return env_vars
     
     return {}
@@ -145,7 +193,7 @@ def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
     
     if not (repo_path / file_name).exists():
-        print(f"  [!] Skipping Docker build: {file_name} not found.")
+        print(f"  {Emoji.WARNING.value} Skipping Docker build: {file_name} not found.")
         return False
     
     cache_flag = "--no-cache" if no_cache else ""
@@ -158,7 +206,7 @@ def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None
     build_env = os.environ.copy()
     build_env.update(env_vars)
     
-    execute(f"Building {repo_name} ({mode})", cmd, cwd=repo_path)
+    execute(f"{Emoji.BUILD.value} Building {repo_name} ({mode})", cmd, cwd=repo_path)
     return True
 
 def docker_start(repo_path, repo_name, mode='dev', env_file=None):
@@ -166,7 +214,7 @@ def docker_start(repo_path, repo_name, mode='dev', env_file=None):
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
     
     if not (repo_path / file_name).exists():
-        print(f"  [!] Skipping Docker start: {file_name} not found.")
+        print(f"  {Emoji.WARNING.value} Skipping Docker start: {file_name} not found.")
         return False
     
     # Copy env file to repo directory and load variables
@@ -175,10 +223,10 @@ def docker_start(repo_path, repo_name, mode='dev', env_file=None):
     if dest_env:
         env_vars = load_env_file(dest_env)
         if env_vars:
-            print(f"  [i] Loaded {len(env_vars)} environment variables")
+            print(f"  {Emoji.KEY.value} Loaded {len(env_vars)} environment variables")
     
     cmd = f"docker compose -f {file_name} up -d"
-    execute(f"Starting {repo_name} ({mode})", cmd, cwd=repo_path)
+    execute(f"{Emoji.START_CONTAINER.value} Starting {repo_name} ({mode})", cmd, cwd=repo_path)
     return True
 
 # let's change it a bit so on change first stop the corresponding docker containers and then remove the old image then rebuild and update it in the json as well again
@@ -190,19 +238,19 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
 
     if not (repo_path / file_name).exists():
-        print(f"  [!] Skipping Docker rebuild: {file_name} not found.")
+        print(f"  {Emoji.WARNING.value} Skipping Docker rebuild: {file_name} not found.")
         return False
 
-    print(f"\n--- Rebuilding Docker image for {repo_name} ({mode} mode) ---")
+    print(f"\n{Emoji.REBUILD.value} Rebuilding Docker image for {repo_name} ({mode} mode)")
 
     # Step 1: Get current image info before stopping containers
-    print(f"  [1/5] Capturing current deployment details...")
+    print(f"  {Emoji.INFO.value} [1/5] Capturing current deployment details...")
     old_image_info, old_services = get_deployment_details(repo_path)
     old_image_id = old_image_info.get('id', '') if old_image_info else ''
 
     # Step 2: Stop running containers
     if old_services:
-        print(f"  [2/5] Stopping {len(old_services)} container(s)...")
+        print(f"  {Emoji.STOP.value} [2/5] Stopping {len(old_services)} container(s)...")
         for service in old_services:
             container_id = service.get('id')
             container_name = service.get('name')
@@ -210,31 +258,31 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
                 stop_service(container_id, container_name)
                 delete_service(container_id, container_name)
     else:
-        print(f"  [2/5] No running containers to stop.")
+        print(f"  {Emoji.INFO.value} [2/5] No running containers to stop.")
 
     # Step 3: Remove old image if it exists
     if old_image_id:
         old_image_name = old_image_info.get('name')
-        print(f"  [3/5] Removing old image...")
+        print(f"  {Emoji.IMAGE.value} [3/5] Removing old image...")
         try:
             remove_image(old_image_id, old_image_name, force=True)
         except SystemExit:
             print(
-                f"  [!] Warning: Could not remove old image (may be in use by other containers). Continuing...")
+                f"  {Emoji.WARNING.value} Could not remove old image (may be in use by other containers). Continuing...")
     else:
-        print(f"  [3/5] No old image to remove.")
+        print(f"  {Emoji.INFO.value} [3/5] No old image to remove.")
 
     # Step 4: Rebuild and start containers
-    print(f"  [4/5] Building new image and starting containers...")
+    print(f"  {Emoji.BUILD.value} [4/5] Building new image and starting containers...")
     docker_build(repo_path, repo_name, mode, env_file=env_file)
     docker_start(repo_path, repo_name, mode, env_file=env_file)
 
     # Step 5: Update tracking with new image info and services
-    print(f"  [5/5] Updating deployment tracking...")
+    print(f"  {Emoji.SAVE.value} [5/5] Updating deployment tracking...")
     image_info, services = get_deployment_details(repo_path)
     update_repo_tracking(repo_name, image_info=image_info, services=services)
 
-    print(f"  [✓] Successfully rebuilt and deployed {repo_name}")
+    print(f"  {Emoji.SUCCESS.value} Successfully rebuilt and deployed {repo_name}")
     if image_info:
         print(f"      New image: {image_info.get('name', 'N/A')}")
     print(f"      Running services: {len(services)}")
@@ -268,7 +316,7 @@ def has_git_changes(repo_path):
 
 def pull_latest(repo_path, branch):
     """Pulls latest changes and fails if merge conflicts occur."""
-    print(f"--- Pulling latest changes for branch: {branch} ---")
+    print(f"{Emoji.PULL.value} Pulling latest changes for branch: {branch}")
     try:
         # fetch and pull
         subprocess.check_call("git fetch origin", shell=True, cwd=repo_path)
@@ -277,19 +325,19 @@ def pull_latest(repo_path, branch):
             f"git pull origin {branch}", shell=True, cwd=repo_path)
     except subprocess.CalledProcessError:
         sys.exit(
-            f"\n[!] GIT PULL FAILED: Merge conflict or network error in {repo_path}. Aborting.")
+            f"\n{Emoji.ERROR.value} GIT PULL FAILED: Merge conflict or network error in {repo_path}. Aborting.")
 
 
 def git_clone(url, repo_name, parent_dir):
     """Clones a repository from the given URL to the specified parent directory."""
-    execute(f"Cloning {repo_name}",
+    execute(f"{Emoji.CLONE.value} Cloning {repo_name}",
             f"git clone {url} {repo_name}", cwd=parent_dir)
     return parent_dir / repo_name
 
 
 def git_checkout(repo_path, branch):
     """Checks out to the specified branch in the given repository path."""
-    execute(f"Checking out {branch} in {repo_path.name}",
+    execute(f"{Emoji.CHECKOUT.value} Checking out {Emoji.BRANCH.value} {branch} in {repo_path.name}",
             f"git checkout {branch}", cwd=repo_path)
 
 # --- Core Logic ---
@@ -394,7 +442,7 @@ def clone_and_checkout(repo_data, mode='dev'):
     # For new clones or if there are changes, rebuild the image
     if not is_new_clone and has_changes:
         print(
-            f"  [i] Changes detected in {repo_name}, rebuilding Docker image...")
+            f"  {Emoji.INFO.value} Changes detected in {repo_name}, rebuilding Docker image...")
         docker_rebuild_image(repo_path, repo_name, mode, env_file=env_path)
 
     return repo_path, repo_name, has_changes, is_new_clone, env_path
@@ -404,7 +452,7 @@ def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
 
     if not (repo_path / file_name).exists():
-        print(f"  [!] Skipping Docker: {file_name} not found.")
+        print(f"  {Emoji.WARNING.value} Skipping Docker: {file_name} not found.")
         return
 
     # Build and start using utility methods
@@ -430,7 +478,7 @@ def run_all(config_file, mode='dev'):
     for step in data.get('installation_steps', []):
         execute(step['desc'], step['cmd'])
 
-    print(f"\n[+] All tasks completed successfully in {mode} mode!")
+    print(f"\n{Emoji.SUCCESS.value} All tasks completed successfully in {mode} mode!")
 
 
 if __name__ == "__main__":
