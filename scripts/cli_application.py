@@ -676,11 +676,11 @@ def main_menu():
         print("  4. Batch Operations")
         print("  5. Manage Deployment (Start/Stop/Restart/Redeploy)")
         print("  6. Installation Manager")
-        print("  7. View Configuration")
+        # print("  7. View Configuration")
         print("  0. Exit")
         
-        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-7): ",
-                                [str(i) for i in range(8)])
+        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-6): ",
+                                [str(i) for i in range(7)])
         
         if choice == '0':
             print(f"\n{Emoji.SUCCESS.value} Goodbye!")
@@ -697,19 +697,19 @@ def main_menu():
             deployment_operations()
         elif choice == '6':
             manage_installations()
-        elif choice == '7':
-            view_configuration()
+        # elif choice == '7':
+        #     view_configuration()
 
-def view_configuration():
-    """View current configuration."""
-    print_header(f"{Emoji.GEAR.value} Configuration")
+# def view_configuration():
+#     """View current configuration."""
+#     print_header(f"{Emoji.GEAR.value} Configuration")
     
-    config = read_json('commands_2.json')
-    print(f"Config File: commands_2.json\n")
-    print(f"Repositories: {len(config.get('repositories', []))}")
-    print(f"Installation Steps: {len(config.get('installation_steps', []))}")
+#     config = read_json('commands_2.json')
+#     print(f"Config File: commands_2.json\n")
+#     print(f"Repositories: {len(config.get('repositories', []))}")
+#     print(f"Installation Steps: {len(config.get('installation_steps', []))}")
     
-    wait_for_enter()
+#     wait_for_enter()
 
 if __name__ == "__main__":
     try:
