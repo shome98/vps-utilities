@@ -2,6 +2,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+import shutil
+import os
 
 # --- Utilities ---
 
@@ -82,7 +84,63 @@ def clean_image_id(image_id):
         return clean_id.replace("sha256:", "", 1)
     return clean_id
 
-def docker_build(repo_path, repo_name, mode='dev', no_cache=False):
+def load_env_file(env_file_path):
+    """Loads environment variables from a .env file."""
+    env_vars = {}
+    if not env_file_path or not Path(env_file_path).exists():
+        return env_vars
+    
+    with open(env_file_path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith('#') and '=' in line:
+                key, value = line.split('=', 1)
+                env_vars[key.strip()] = value.strip()
+    return env_vars
+
+def resolve_env_file_path(env_file):
+    """Resolves env file path relative to scripts directory if not absolute."""
+    if not env_file:
+        return None
+    
+    env_path = Path(env_file)
+    if not env_path.is_absolute():
+        scripts_dir = Path(__file__).resolve().parent
+        env_path = scripts_dir / env_file
+    
+    return env_path
+
+def copy_env_file_to_repo(env_file, repo_path):
+    """Copies env file from scripts directory to repository directory."""
+    if not env_file:
+        return None
+    
+    env_path = resolve_env_file_path(env_file)
+    
+    if env_path and env_path.exists():
+        dest_env = repo_path / ".env"
+        shutil.copy2(str(env_path), str(dest_env))
+        print(f"  [i] Copied env file to {dest_env}")
+        return str(dest_env)
+    
+    return None
+
+def load_and_apply_env_file(env_file):
+    """Loads env file and returns environment variables dict."""
+    if not env_file:
+        return {}
+    
+    env_path = resolve_env_file_path(env_file)
+    
+    if env_path and env_path.exists():
+        env_vars = load_env_file(str(env_path))
+        if env_vars:
+            print(f"  [i] Loaded {len(env_vars)} environment variables from {env_path}")
+        return env_vars
+    
+    return {}
+
+def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None):
     """Builds Docker images using docker compose."""
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
     
@@ -91,17 +149,33 @@ def docker_build(repo_path, repo_name, mode='dev', no_cache=False):
         return False
     
     cache_flag = "--no-cache" if no_cache else ""
-    cmd = f"docker compose -f {file_name} build {cache_flag}"
+    cmd = f"docker compose -f {file_name} build {cache_flag}".strip()
+    
+    # Load and set environment variables from env_file
+    env_vars = load_and_apply_env_file(env_file)
+    
+    # Merge with current environment
+    build_env = os.environ.copy()
+    build_env.update(env_vars)
+    
     execute(f"Building {repo_name} ({mode})", cmd, cwd=repo_path)
     return True
 
-def docker_start(repo_path, repo_name, mode='dev'):
+def docker_start(repo_path, repo_name, mode='dev', env_file=None):
     """Starts Docker containers using docker compose."""
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
     
     if not (repo_path / file_name).exists():
         print(f"  [!] Skipping Docker start: {file_name} not found.")
         return False
+    
+    # Copy env file to repo directory and load variables
+    dest_env = copy_env_file_to_repo(env_file, repo_path)
+    
+    if dest_env:
+        env_vars = load_env_file(dest_env)
+        if env_vars:
+            print(f"  [i] Loaded {len(env_vars)} environment variables")
     
     cmd = f"docker compose -f {file_name} up -d"
     execute(f"Starting {repo_name} ({mode})", cmd, cwd=repo_path)
@@ -111,7 +185,7 @@ def docker_start(repo_path, repo_name, mode='dev'):
 # start it again as well, so it's ready to use right away
 
 
-def docker_rebuild_image(repo_path, repo_name, mode='dev'):
+def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
     """Rebuilds Docker image with proper container lifecycle management: stop -> remove old image -> rebuild -> start."""
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
 
@@ -152,8 +226,8 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev'):
 
     # Step 4: Rebuild and start containers
     print(f"  [4/5] Building new image and starting containers...")
-    docker_build(repo_path, repo_name, mode)
-    docker_start(repo_path, repo_name, mode)
+    docker_build(repo_path, repo_name, mode, env_file=env_file)
+    docker_start(repo_path, repo_name, mode, env_file=env_file)
 
     # Step 5: Update tracking with new image info and services
     print(f"  [5/5] Updating deployment tracking...")
@@ -221,7 +295,7 @@ def git_checkout(repo_path, branch):
 # --- Core Logic ---
 
 
-def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, image_info=None, services=None, tracking_file='deployed_repos.json'):
+def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, image_info=None, services=None, tracking_file='deployed_repos.json'):
     data = read_json(tracking_file)
     entry = next((item for item in data if item.get(
         'folder_name') == repo_name), None)
@@ -236,6 +310,8 @@ def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None
         entry['githubUrl'] = github_url
     if branch:
         entry['checkoutBranch'] = branch
+    if env_path:
+        entry['envPath'] = env_path
 
     if image_info:
         entry['image'] = image_info
@@ -273,6 +349,7 @@ def get_deployment_details(repo_path):
 def clone_and_checkout(repo_data, mode='dev'):
     url = repo_data['githubUrl']
     branch = repo_data.get('checkoutBranch', 'main')
+    env_path = repo_data.get('envPath')  # Optional env file path
     repo_name = url.split('/')[-1].replace('.git', '')
 
     parent_dir = Path(__file__).resolve().parent.parent
@@ -307,9 +384,9 @@ def clone_and_checkout(repo_data, mode='dev'):
         has_changes = (commit_before !=
                        commit_after) or has_git_changes(repo_path)
 
-    # Save the basic info including URL and Branch
+    # Save the basic info including URL, Branch, and envPath
     update_repo_tracking(repo_name, repo_path=repo_path,
-                         github_url=url, branch=branch)
+                         github_url=url, branch=branch, env_path=env_path)
 
     git_checkout(repo_path, branch)
 
@@ -318,12 +395,12 @@ def clone_and_checkout(repo_data, mode='dev'):
     if not is_new_clone and has_changes:
         print(
             f"  [i] Changes detected in {repo_name}, rebuilding Docker image...")
-        docker_rebuild_image(repo_path, repo_name, mode)
+        docker_rebuild_image(repo_path, repo_name, mode, env_file=env_path)
 
-    return repo_path, repo_name, has_changes, is_new_clone
+    return repo_path, repo_name, has_changes, is_new_clone, env_path
 
 
-def deploy_docker(repo_path, repo_name, mode='dev'):
+def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
     file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
 
     if not (repo_path / file_name).exists():
@@ -331,8 +408,8 @@ def deploy_docker(repo_path, repo_name, mode='dev'):
         return
 
     # Build and start using utility methods
-    docker_build(repo_path, repo_name, mode)
-    docker_start(repo_path, repo_name, mode)
+    docker_build(repo_path, repo_name, mode, env_file=env_file)
+    docker_start(repo_path, repo_name, mode, env_file=env_file)
 
     image_info, services = get_deployment_details(repo_path)
     update_repo_tracking(repo_name, image_info=image_info, services=services)
@@ -342,13 +419,13 @@ def run_all(config_file, mode='dev'):
     data = read_json(config_file)
     for repo in data.get('repositories', []):
         # clone_and_checkout now handles Docker rebuild automatically when changes are detected
-        repo_path, repo_name, has_changes, is_new_clone = clone_and_checkout(
+        repo_path, repo_name, has_changes, is_new_clone, env_path = clone_and_checkout(
             repo, mode=mode)
 
         # Only deploy if not already handled by clone_and_checkout
-        # (i.e., for existing repos without changes that still need to be running)
+        # (i.e., for new clones that need initial deployment)
         if is_new_clone:
-            deploy_docker(repo_path, repo_name, mode=mode)
+            deploy_docker(repo_path, repo_name, mode=mode, env_file=env_path)
 
     for step in data.get('installation_steps', []):
         execute(step['desc'], step['cmd'])
