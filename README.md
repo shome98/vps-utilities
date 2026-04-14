@@ -4,9 +4,9 @@ Automated tools for managing VPS deployments, Docker installations, and GitHub r
 
 ## Quick Start
 
-1. **Clone the repository** (Recommended branch: `main`):
+1. **Clone the repository** (Recommended branch: `dev-latest`):
    ```bash
-   git clone -b main <REPOSITORY_URL> vps-utilities
+   git clone -b dev-latest https://github.com/shome98/vps-utilities.git vps-utilities
    ```
 2. **Launch the CLI**:
    ```bash
