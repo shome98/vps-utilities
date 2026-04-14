@@ -13,7 +13,9 @@ from script import (
     deploy_docker, clone_and_checkout, resolve_docker_compose_file,
     load_installation_steps, execute_installation_steps,
     get_all_containers_status, validate_batch_json,
-    DEPLOYMENT_UTILS_DIR, APPS_DIR, SCRIPTS_DIR
+    DEPLOYMENT_UTILS_DIR, APPS_DIR, SCRIPTS_DIR,
+    resolve_authenticated_url, get_credentials, get_token_by_id,
+    CREDENTIALS_FILE
 )
 
 # --- CLI Helper Functions ---
@@ -238,10 +240,43 @@ def clone_and_deploy():
     mode = get_user_choice(f"{Emoji.GEAR.value} Deployment mode (dev/qa/prod) [dev]: ", 
                           ['dev', 'qa', 'prod', '']) or 'dev'
     
+    # Get Private Status
+    is_private = get_yes_no(f"{Emoji.KEY.value} Is this a private repository?")
+    cred_id = None
+    
+    if is_private:
+        creds = get_credentials()
+        if creds:
+            print(f"\n{Emoji.INFO.value} Select credential to use:")
+            cred_options = [{"id": str(i+1), "name": c.get('alias')} for i, c in enumerate(creds)]
+            cred_options.append({"id": "0", "name": "Manual Entry (One-time)"})
+            cred_options.append({"id": "N", "name": "Add New Credential"})
+            
+            cred_choice = display_menu(f"{Emoji.KEY.value} Select Credential", cred_options)
+            
+            if cred_choice == "0":
+                cred_id = input("Enter PAT Token: ").strip()
+            elif cred_choice == "N":
+                add_credential_flow()
+                # Reload creds and select last one
+                creds = get_credentials()
+                cred_id = creds[-1]['id'] if creds else None
+            else:
+                cred_id = creds[int(cred_choice)-1]['id']
+        else:
+            print(f"{Emoji.WARNING.value} No saved credentials found.")
+            if get_yes_no("Add new credential now?"):
+                add_credential_flow()
+                creds = get_credentials()
+                cred_id = creds[-1]['id'] if creds else None
+            else:
+                cred_id = input("Enter PAT Token (One-time): ").strip()
+
     # Confirm
     print(f"\n{Emoji.INFO.value} Summary:")
     print(f"  Repository: {repo_name}")
     print(f"  URL: {url}")
+    print(f"  Private: {'Yes' if is_private else 'No'}")
     print(f"  Branch: {branch}")
     print(f"  Env File: {env_path or 'None'}")
     print(f"  Mode: {mode}")
@@ -257,7 +292,8 @@ def clone_and_deploy():
         repo_data = {
             'githubUrl': url,
             'checkoutBranch': branch,
-            'envPath': env_path
+            'envPath': env_path,
+            'credentialId': cred_id
         }
         
         repo_path, name, has_changes, is_new, env = clone_and_checkout(repo_data, mode=mode)
@@ -689,6 +725,8 @@ def main_menu():
         {"id": "4", "name": "Batch Operations"},
         {"id": "5", "name": "Manage Deployment (Start/Stop/Restart/Redeploy)"},
         {"id": "6", "name": "Installation Manager"},
+        {"id": "7", "name": "View Configuration"},
+        {"id": "8", "name": "Manage Credentials (Tokens)"},
         {"id": "0", "name": "Exit"}
     ]
     
@@ -710,6 +748,88 @@ def main_menu():
             deployment_operations()
         elif choice == '6':
             manage_installations()
+        elif choice == '7':
+            view_configuration()
+        elif choice == '8':
+            manage_credentials()
+
+def view_configuration():
+    """View current configuration."""
+    print_header(f"{Emoji.GEAR.value} Configuration")
+    
+    config_path = DEPLOYMENT_UTILS_DIR / 'commands_2.json'
+    config = read_json(config_path)
+    print(f"Config File: {config_path.name}\n")
+    print(f"Repositories: {len(config.get('repositories', [])) if isinstance(config, dict) else 0}")
+    print(f"Installation Steps: {len(config.get('installation_steps', [])) if isinstance(config, dict) else 0}")
+    
+    wait_for_enter()
+
+def manage_credentials():
+    """Menu to manage Git tokens and credentials."""
+    while True:
+        creds = get_credentials()
+        options = [
+            {"id": "1", "name": "List Saved Credentials"},
+            {"id": "2", "name": "Add New PAT Token"},
+            {"id": "3", "name": "Delete Credential"},
+            {"id": "0", "name": "Back to Main Menu"}
+        ]
+        
+        choice = display_menu(f"{Emoji.KEY.value} Credentials Manager", options)
+        
+        if choice == '0':
+            break
+        elif choice == '1':
+            print_header("Saved Credentials")
+            if not creds:
+                print("No credentials stored.")
+            for c in creds:
+                print(f"  - {c.get('alias')} ({c.get('type')}) [ID: {c.get('id')}]")
+            wait_for_enter()
+        elif choice == '2':
+            add_credential_flow()
+        elif choice == '3':
+            if not creds:
+                print("Nothing to delete.")
+                wait_for_enter()
+                continue
+            
+            del_options = [{"id": str(i+1), "name": c.get('alias')} for i, c in enumerate(creds)]
+            del_options.append({"id": "0", "name": "Cancel"})
+            del_choice = display_menu("Delete which credential?", del_options)
+            
+            if del_choice != "0":
+                idx = int(del_choice) - 1
+                creds.pop(idx)
+                write_json(CREDENTIALS_FILE, creds)
+                print(f"{Emoji.SUCCESS.value} Deleted.")
+                wait_for_enter()
+
+def add_credential_flow():
+    """Interactive flow to add a new token."""
+    print_header("Add New Credential")
+    alias = input("Enter alias (e.g., 'Work GitHub'): ").strip()
+    token = input("Enter Personal Access Token: ").strip()
+    
+    if not alias or not token:
+        print(f"{Emoji.ERROR.value} Alias and Token are required.")
+        wait_for_enter()
+        return
+    
+    import uuid
+    new_cred = {
+        "id": str(uuid.uuid4())[:8],
+        "alias": alias,
+        "token": token,
+        "type": "pat"
+    }
+    
+    creds = get_credentials()
+    creds.append(new_cred)
+    write_json(CREDENTIALS_FILE, creds)
+    print(f"\n{Emoji.SUCCESS.value} Credential saved successfully!")
+    wait_for_enter()
         
 
 if __name__ == "__main__":

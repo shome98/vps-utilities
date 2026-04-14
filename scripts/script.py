@@ -11,6 +11,7 @@ SCRIPTS_DIR = Path(__file__).resolve().parent
 VPS_UTILS_DIR = SCRIPTS_DIR.parent
 DEPLOYMENT_UTILS_DIR = VPS_UTILS_DIR.parent
 APPS_DIR = DEPLOYMENT_UTILS_DIR.parent
+CREDENTIALS_FILE = DEPLOYMENT_UTILS_DIR / 'credentials.json'
 
 # --- Emoji Definitions ---
 
@@ -85,7 +86,16 @@ def write_json(path, data):
 
 def execute(desc, cmd, cwd=None, capture=False, env=None):
     if not capture:
+        # Redact potential tokens from printed description or command
+        display_cmd = cmd
+        if "ghp_" in cmd or "@github.com" in cmd:
+            import re
+            display_cmd = re.sub(r'https://[^@]+@', 'https://***@', cmd)
         print(f"{Emoji.GEAR.value} {desc}")
+        if display_cmd != cmd:
+            # We don't print the actual raw command if it has secrets
+            pass 
+            
     try:
         # Merge provided env with current process environment
         full_env = os.environ.copy()
@@ -554,12 +564,44 @@ def has_git_changes(repo_path):
         # If any check fails, assume changes exist to be safe
         return True
 
+# --- Authentication Utilities ---
+
+def resolve_authenticated_url(url, token=None):
+    """Injects token into https URLs for private repository access."""
+    if not token or "git@" in url or "@github.com" in url:
+        return url
+    
+    if "https://" in url:
+        return url.replace("https://", f"https://{token}@")
+    
+    # Handle cases like github.com/user/repo
+    return f"https://{token}@{url}"
+
+def get_credentials():
+    """Load credentials from JSON file."""
+    return read_json(CREDENTIALS_FILE)
+
+def get_token_by_id(cred_id):
+    """Retrieve a specific token from credentials store."""
+    if not cred_id:
+        return None
+    creds = get_credentials()
+    for c in creds:
+        if c.get('id') == cred_id or c.get('alias') == cred_id:
+            return c.get('token')
+    return None
+
 # --- Git Utilities ---
 
 
-def pull_latest(repo_path, branch):
+def pull_latest(repo_path, branch, token=None):
     """Pulls latest changes and fails if merge conflicts occur."""
     print(f"{Emoji.PULL.value} Pulling latest changes for branch: {branch}")
+    
+    # If a token is provided, we need to ensure the remote uses it
+    # However, git usually remembers the authenticated URL from clone.
+    # If not, we might need: git remote set-url origin <auth_url>
+    
     try:
         # fetch and pull
         subprocess.check_call("git fetch origin", shell=True, cwd=repo_path)
@@ -570,10 +612,11 @@ def pull_latest(repo_path, branch):
         raise RuntimeError(f"GIT PULL FAILED: Merge conflict or network error in {repo_path}")
 
 
-def git_clone(url, repo_name, parent_dir):
+def git_clone(url, repo_name, parent_dir, token=None):
     """Clones a repository from the given URL to the specified parent directory."""
+    auth_url = resolve_authenticated_url(url, token)
     execute(f"{Emoji.CLONE.value} Cloning {repo_name}",
-            f"git clone {url} {repo_name}", cwd=parent_dir)
+            f"git clone {auth_url} {repo_name}", cwd=parent_dir)
     return parent_dir / repo_name
 
 
@@ -652,9 +695,11 @@ def clone_and_checkout(repo_data, mode='dev'):
 
     is_new_clone = False
     has_changes = False
+    commit_before = ""
 
     if not repo_path.exists():
-        repo_path = git_clone(url, repo_name, parent_dir)
+        token = get_token_by_id(repo_data.get('credentialId'))
+        repo_path = git_clone(url, repo_name, parent_dir, token=token)
         is_new_clone = True
         has_changes = True  # New clone always needs build
     else:
@@ -665,19 +710,19 @@ def clone_and_checkout(repo_data, mode='dev'):
         except:
             commit_before = ""
 
-        # Pull latest changes
-        pull_latest(repo_path, branch)
+    # Pull latest changes
+    token = get_token_by_id(repo_data.get('credentialId'))
+    pull_latest(repo_path, branch, token=token)
 
-        # Get commit hash after pull
-        try:
-            commit_after = execute(
-                "", f"git rev-parse HEAD", cwd=repo_path, capture=True)
-        except:
-            commit_after = ""
-
-        # Check if commit changed or if there are uncommitted changes
-        has_changes = (commit_before !=
-                       commit_after) or has_git_changes(repo_path)
+    # Get commit hash after pull
+    try:
+        commit_after = execute(
+            "", f"git rev-parse HEAD", cwd=repo_path, capture=True)
+    except:
+        commit_after = ""
+    
+    # Check if commit changed or if there are uncommitted changes
+    has_changes = (commit_before != commit_after) or has_git_changes(repo_path)
 
     # Save the basic info including URL, Branch, envPath, and mode
     update_repo_tracking(repo_name, repo_path=repo_path,

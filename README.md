@@ -50,6 +50,7 @@ newgrp docker
 3. **Batch Operations**: Deploy multiple repositories from a JSON configuration file.
 4. **Service Management**: Start, stop, restart, or re-deploy existing services.
 5. **Installation Manager**: Run automated installation scripts for Docker, Coolify, and more.
+6. **Private Repository Support**: Securely store GitHub PATs and clone private repos without hardcoded secrets.
 
 ## Configuration
 
@@ -100,9 +101,20 @@ Installation commands and repository tracking and batch deployment are stored in
         "githubUrl": "git hub url here",
         "checkoutBranch": "preferred checkout branch name here on git pull this branch will be used",
         "envPath": "your env file",
-        "deployMode": "mode of deployment dev , prod, qa"
+        "deployMode": "mode of deployment dev , prod, qa",
+        "credentialId": "optional-token-alias-here"
     }
 ]
 ```
+- `credentials.json` (Auto-generated/Manual)
 - `coolify_installation_manual_commands.json`
 - `deployed_repos.json` (Auto-generated)
+
+## Private Repository Setup
+
+1. Open the CLI: `python run_cli.py`
+2. Select **Manage Credentials (Tokens)** (Option 8).
+3. Add your GitHub Personal Access Token (PAT) and give it an alias (e.g., `work-token`).
+4. When deploying a private repository, the CLI will prompt you to select one of your saved tokens.
+
+*Note: The CLI automatically redacts tokens from terminal output and logs for security.*
