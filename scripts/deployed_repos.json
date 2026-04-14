@@ -13,26 +13,5 @@
     },
     {
         "folder_name": "af-client"
-    },
-    {
-        "folder_name": "crud-api-mongodb",
-        "folderPath": "D:\\Github_Codes\\clone-check\\crud-api-mongodb",
-        "githubUrl": "https://github.com/shome98/crud-api-mongodb.git",
-        "checkoutBranch": "main",
-        "envPath": "crud-api-mongodb.env",
-        "image": {
-            "name": "crud-api-mongodb-app",
-            "id": "ff5507ddc5ef093d4c81b5818b56ccac55704e3a53d96cd7a534e652e9164483"
-        },
-        "services": [
-            {
-                "name": "app",
-                "id": "257f6809d27f"
-            },
-            {
-                "name": "mongodb",
-                "id": "d85900d37214"
-            }
-        ]
     }
 ]
