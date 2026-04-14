@@ -54,6 +54,25 @@ def get_yes_no(prompt):
             return False
         print(f"{Emoji.WARNING.value} Please enter 'y' or 'n'.")
 
+# --- UI Helpers ---
+
+def display_menu(title, options, subtitle=None):
+    """
+    Displays a menu from a list of options and returns the validated choice.
+    options: list of dicts with 'id' and 'name'
+    """
+    print_header(title)
+    if subtitle:
+        print(f"{subtitle}\n")
+    
+    for opt in options:
+        print(f"  {opt['id']}. {opt['name']}")
+    
+    valid_ids = [str(opt['id']) for opt in options]
+    # Re-use get_user_choice but provide a clean prompt
+    range_str = f"0-{len(options)-1}" if "0" in valid_ids else f"1-{len(options)}"
+    return get_user_choice(f"Select option ({range_str}): ", valid_ids)
+
 # --- Deployment Status Checking ---
 
 def check_deployment_status(repo):
@@ -178,17 +197,15 @@ def select_deployment():
         wait_for_enter()
         return None
     
-    print(f"\n{Emoji.INFO.value} Select a deployment:\n")
-    
+    options = []
     for idx, repo in enumerate(repos, 1):
         name = repo.get('folder_name', 'Unknown')
         status = check_deployment_status(repo)
-        print(f"  {idx}. {name} - {status}")
+        options.append({"id": str(idx), "name": f"{name} - {status}"})
     
-    print(f"\n  0. Cancel")
+    options.append({"id": "0", "name": "Cancel"})
     
-    choice = get_user_choice(f"\n{Emoji.ARROW.value} Enter number (0-{len(repos)}): ",
-                            [str(i) for i in range(len(repos) + 1)])
+    choice = display_menu(f"{Emoji.INFO.value} Select a deployment", options)
     
     if choice == '0':
         return None
@@ -268,24 +285,23 @@ def deployment_operations():
     mode = get_deployment_mode(repo)
     
     while True:
-        print_header(f"{Emoji.TOOLS.value} Operations: {repo_name}")
+        options = [
+            {"id": "1", "name": "Start Service"},
+            {"id": "2", "name": "Stop Service"},
+            {"id": "3", "name": "Restart Service"},
+            {"id": "4", "name": "Re-deploy (Rebuild & Restart)"},
+            {"id": "5", "name": "Git Pull (Update Code)"},
+            {"id": "6", "name": "View Logs"},
+            {"id": "7", "name": "View Deployment Details"},
+            {"id": "8", "name": "Git Status & Diff"},
+            {"id": "9", "name": "Remove Deployment"},
+            {"id": "0", "name": "Back to Main Menu"}
+        ]
         
         status = check_deployment_status(repo)
-        print(f"Status: {status}\n")
+        subtitle = f"Status: {status}"
         
-        print("  1. Start Service")
-        print("  2. Stop Service")
-        print("  3. Restart Service")
-        print("  4. Re-deploy (Rebuild & Restart)")
-        print("  5. Git Pull (Update Code)")
-        print("  6. View Logs")
-        print("  7. View Deployment Details")
-        print("  8. Git Status & Diff")
-        print("  9. Remove Deployment")
-        print("  0. Back to Main Menu")
-        
-        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select operation (0-9): ",
-                                [str(i) for i in range(10)])
+        choice = display_menu(f"{Emoji.TOOLS.value} Operations: {repo_name}", options, subtitle=subtitle)
         
         if choice == '0':
             break
@@ -399,12 +415,10 @@ def view_logs(repo, repo_path):
         print(f"{Emoji.WARNING.value} No services running.")
         return
     
-    print(f"\n{Emoji.INFO.value} Available services:")
-    for idx, service in enumerate(services, 1):
-        print(f"  {idx}. {service.get('name')}")
+    options = [{"id": str(idx), "name": service.get('name')} 
+               for idx, service in enumerate(services, 1)]
     
-    choice = get_user_choice(f"\n{Emoji.ARROW.value} Select service to view logs: ",
-                            [str(i) for i in range(1, len(services) + 1)])
+    choice = display_menu(f"{Emoji.INFO.value} Available Services", options)
     
     service_name = services[int(choice) - 1].get('name')
     print(f"\n{Emoji.INFO.value} Showing logs for {service_name} (Ctrl+C to exit):\n")
@@ -580,14 +594,13 @@ def batch_deploy_from_json():
 def batch_operations_menu():
     """Submenu for batch operations."""
     while True:
-        print_header(f"{Emoji.BATCH.value} Batch Operations")
+        options = [
+            {"id": "1", "name": "Deploy from JSON File"},
+            {"id": "2", "name": "Coming Soon: Export Deployments to JSON"},
+            {"id": "0", "name": "Back to Main Menu"}
+        ]
         
-        print("  1. Deploy from JSON File")
-        print("  2. Coming Soon: Export Deployments to JSON")
-        print("  0. Back to Main Menu")
-        
-        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-2): ",
-                                ['0', '1', '2'])
+        choice = display_menu(f"{Emoji.BATCH.value} Batch Operations", options)
         
         if choice == '0':
             break
@@ -599,8 +612,6 @@ def batch_operations_menu():
 
 def manage_installations():
     """Interactive installation steps manager."""
-    print_header(f"{Emoji.TOOLS.value} Installation Manager")
-    
     # Define default installation files
     scripts_dir = Path(__file__).resolve().parent
     parent_dir = scripts_dir.parent
@@ -609,18 +620,16 @@ def manage_installations():
         '2': {'name': 'Coolify Installation', 'file': parent_dir / 'coolify_installation_manual_commands.json'},
     }
     
-    print(f"\n{Emoji.INFO.value} Select installation source:\n")
-    print("  Default Installations:")
+    options = []
     for key, install in default_installations.items():
-        exists = "✓" if install['file'].exists() else "✗"
-        print(f"    {key}. {install['name']} [{exists}]")
+        exists_mark = "✓" if install['file'].exists() else "✗"
+        options.append({"id": key, "name": f"{install['name']} [{exists_mark}]"})
     
-    print(f"\n  Custom:")
-    print(f"    3. Provide custom JSON file path")
-    print(f"    0. Cancel")
+    options.append({"id": "3", "name": "Provide custom JSON file path"})
+    options.append({"id": "0", "name": "Cancel"})
     
-    choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-3): ", 
-                            ['0', '1', '2', '3'])
+    choice = display_menu(f"{Emoji.TOOLS.value} Installation Manager", options, 
+                         subtitle="Select installation source:")
     
     if choice == '0':
         return
@@ -667,20 +676,18 @@ def manage_installations():
 
 def main_menu():
     """Display main menu and handle user choice."""
+    options = [
+        {"id": "1", "name": "List All Deployments (Dashboard)"},
+        {"id": "2", "name": "Show Services Status"},
+        {"id": "3", "name": "Clone & Deploy New Repository"},
+        {"id": "4", "name": "Batch Operations"},
+        {"id": "5", "name": "Manage Deployment (Start/Stop/Restart/Redeploy)"},
+        {"id": "6", "name": "Installation Manager"},
+        {"id": "0", "name": "Exit"}
+    ]
+    
     while True:
-        print_header(f"{Emoji.DOCKER.value} Deployment Manager CLI")
-        
-        print("  1. List All Deployments (Dashboard)")
-        print("  2. Show Services Status")
-        print("  3. Clone & Deploy New Repository")
-        print("  4. Batch Operations")
-        print("  5. Manage Deployment (Start/Stop/Restart/Redeploy)")
-        print("  6. Installation Manager")
-        # print("  7. View Configuration")
-        print("  0. Exit")
-        
-        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-6): ",
-                                [str(i) for i in range(7)])
+        choice = display_menu(f"{Emoji.DOCKER.value} Deployment Manager CLI", options)
         
         if choice == '0':
             print(f"\n{Emoji.SUCCESS.value} Goodbye!")

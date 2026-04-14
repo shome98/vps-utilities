@@ -410,12 +410,18 @@ def execute_installation_steps(steps, interactive=True, skip_prompt=False, get_y
         return True
     
     # Interactive mode - show execution choices
-    print(f"\n{Emoji.TOOLS.value} Execution Mode:")
-    print("  1. Execute All Steps")
-    print("  2. Execute Step-by-Step (with control)")
-    print("  3. Cancel")
+    modes = [
+        {"id": "1", "name": "Execute All Steps"},
+        {"id": "2", "name": "Execute Step-by-Step (with control)"},
+        {"id": "3", "name": "Cancel"}
+    ]
     
-    choice = get_user_choice_fn(f"\n{Emoji.ARROW.value} Select mode (1-3): ", ['1', '2', '3'])
+    print(f"\n{Emoji.TOOLS.value} Execution Mode:")
+    for mode in modes:
+        print(f"  {mode['id']}. {mode['name']}")
+    
+    valid_ids = [m["id"] for m in modes]
+    choice = get_user_choice_fn(f"\n{Emoji.ARROW.value} Select mode ({valid_ids[0]}-{valid_ids[-1]}): ", valid_ids)
     
     if choice == '3':
         print(f"{Emoji.INFO.value} Installation cancelled.")
