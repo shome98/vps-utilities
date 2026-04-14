@@ -188,12 +188,55 @@ def load_and_apply_env_file(env_file):
     
     return {}
 
+def resolve_docker_compose_file(repo_path, mode='dev'):
+    """Resolves the appropriate docker-compose file based on mode with fallback logic.
+    
+    Priority for each mode:
+    - prod: docker-compose.prod.yml -> docker-compose.prod.yaml -> docker-compose.yml -> docker-compose.yaml
+    - dev: docker-compose.dev.yml -> docker-compose.dev.yaml -> docker-compose.yml -> docker-compose.yaml
+    - qa: docker-compose.qa.yml -> docker-compose.qa.yaml -> docker-compose.yml -> docker-compose.yaml
+    
+    Returns:
+        tuple: (file_name, file_path) or (None, None) if no file found
+    """
+    # Define file priority based on mode
+    if mode == 'prod':
+        file_candidates = [
+            'docker-compose.prod.yml',
+            'docker-compose.prod.yaml',
+            'docker-compose.yml',
+            'docker-compose.yaml'
+        ]
+    elif mode == 'qa':
+        file_candidates = [
+            'docker-compose.qa.yml',
+            'docker-compose.qa.yaml',
+            'docker-compose.yml',
+            'docker-compose.yaml'
+        ]
+    else:  # dev or default
+        file_candidates = [
+            'docker-compose.dev.yml',
+            'docker-compose.dev.yaml',
+            'docker-compose.yml',
+            'docker-compose.yaml'
+        ]
+    
+    # Check each candidate file
+    for file_name in file_candidates:
+        file_path = repo_path / file_name
+        if file_path.exists():
+            return file_name, file_path
+    
+    # No file found
+    return None, None
+
 def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None):
     """Builds Docker images using docker compose."""
-    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    file_name, file_path = resolve_docker_compose_file(repo_path, mode)
     
-    if not (repo_path / file_name).exists():
-        print(f"  {Emoji.WARNING.value} Skipping Docker build: {file_name} not found.")
+    if not file_name:
+        print(f"  {Emoji.WARNING.value} Skipping Docker build: No docker-compose file found for {mode} mode.")
         return False
     
     cache_flag = "--no-cache" if no_cache else ""
@@ -211,10 +254,10 @@ def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None
 
 def docker_start(repo_path, repo_name, mode='dev', env_file=None):
     """Starts Docker containers using docker compose."""
-    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    file_name, file_path = resolve_docker_compose_file(repo_path, mode)
     
-    if not (repo_path / file_name).exists():
-        print(f"  {Emoji.WARNING.value} Skipping Docker start: {file_name} not found.")
+    if not file_name:
+        print(f"  {Emoji.WARNING.value} Skipping Docker start: No docker-compose file found for {mode} mode.")
         return False
     
     # Copy env file to repo directory and load variables
@@ -235,10 +278,10 @@ def docker_start(repo_path, repo_name, mode='dev', env_file=None):
 
 def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
     """Rebuilds Docker image with proper container lifecycle management: stop -> remove old image -> rebuild -> start."""
-    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    file_name, file_path = resolve_docker_compose_file(repo_path, mode)
 
-    if not (repo_path / file_name).exists():
-        print(f"  {Emoji.WARNING.value} Skipping Docker rebuild: {file_name} not found.")
+    if not file_name:
+        print(f"  {Emoji.WARNING.value} Skipping Docker rebuild: No docker-compose file found for {mode} mode.")
         return False
 
     print(f"\n{Emoji.REBUILD.value} Rebuilding Docker image for {repo_name} ({mode} mode)")
@@ -343,7 +386,7 @@ def git_checkout(repo_path, branch):
 # --- Core Logic ---
 
 
-def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, image_info=None, services=None, tracking_file='deployed_repos.json'):
+def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, tracking_file='deployed_repos.json'):
     data = read_json(tracking_file)
     entry = next((item for item in data if item.get(
         'folder_name') == repo_name), None)
@@ -360,6 +403,8 @@ def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None
         entry['checkoutBranch'] = branch
     if env_path:
         entry['envPath'] = env_path
+    if mode:
+        entry['deployMode'] = mode
 
     if image_info:
         entry['image'] = image_info
@@ -432,9 +477,9 @@ def clone_and_checkout(repo_data, mode='dev'):
         has_changes = (commit_before !=
                        commit_after) or has_git_changes(repo_path)
 
-    # Save the basic info including URL, Branch, and envPath
+    # Save the basic info including URL, Branch, envPath, and mode
     update_repo_tracking(repo_name, repo_path=repo_path,
-                         github_url=url, branch=branch, env_path=env_path)
+                         github_url=url, branch=branch, env_path=env_path, mode=mode)
 
     git_checkout(repo_path, branch)
 
@@ -449,10 +494,10 @@ def clone_and_checkout(repo_data, mode='dev'):
 
 
 def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
-    file_name = "docker-compose.yml" if mode == 'prod' else "docker-compose.dev.yml"
+    file_name, file_path = resolve_docker_compose_file(repo_path, mode)
 
-    if not (repo_path / file_name).exists():
-        print(f"  {Emoji.WARNING.value} Skipping Docker: {file_name} not found.")
+    if not file_name:
+        print(f"  {Emoji.WARNING.value} Skipping Docker: No docker-compose file found for {mode} mode.")
         return
 
     # Build and start using utility methods
@@ -460,7 +505,7 @@ def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
     docker_start(repo_path, repo_name, mode, env_file=env_file)
 
     image_info, services = get_deployment_details(repo_path)
-    update_repo_tracking(repo_name, image_info=image_info, services=services)
+    update_repo_tracking(repo_name, image_info=image_info, services=services, mode=mode)
 
 
 def run_all(config_file, mode='dev'):
