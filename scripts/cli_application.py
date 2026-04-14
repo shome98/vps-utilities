@@ -10,7 +10,7 @@ from script import (
     docker_build, docker_start, docker_rebuild_image,
     stop_service, restart_service, delete_service,
     get_deployment_details, update_repo_tracking,
-    deploy_docker, clone_and_checkout
+    deploy_docker, clone_and_checkout, resolve_docker_compose_file
 )
 
 # --- CLI Helper Functions ---
@@ -79,6 +79,10 @@ def check_deployment_status(repo):
     except:
         return f"{Emoji.WARNING.value} Unknown"
 
+def get_deployment_mode(repo):
+    """Get the deployment mode for a repository."""
+    return repo.get('deployMode', 'dev')
+
 # --- Core Features ---
 
 def list_deployments():
@@ -93,19 +97,20 @@ def list_deployments():
         return
     
     # Display table header
-    print(f"{'#':<4} {'Name':<25} {'Status':<12} {'Branch':<15} {'Services':<10}")
-    print(f"{'-'*4} {'-'*25} {'-'*12} {'-'*15} {'-'*10}")
+    print(f"{'#':<4} {'Name':<25} {'Status':<12} {'Branch':<15} {'Mode':<8} {'Services':<10}")
+    print(f"{'-'*4} {'-'*25} {'-'*12} {'-'*15} {'-'*8} {'-'*10}")
     
     for idx, repo in enumerate(repos, 1):
         name = repo.get('folder_name', 'Unknown')
         branch = repo.get('checkoutBranch', 'N/A')
         services = repo.get('services', [])
+        mode = repo.get('deployMode', 'dev')
         
         # Check actual Docker status
         status = check_deployment_status(repo)
         service_count = len(services) if services else 0
         
-        print(f"{idx:<4} {name:<25} {status:<12} {branch:<15} {service_count:<10}")
+        print(f"{idx:<4} {name:<25} {status:<12} {branch:<15} {mode:<8} {service_count:<10}")
     
     print_separator()
     wait_for_enter()
@@ -158,8 +163,8 @@ def clone_and_deploy():
     env_path = env_path if env_path else None
     
     # Get deployment mode
-    mode = get_user_choice(f"{Emoji.GEAR.value} Deployment mode (dev/prod) [dev]: ", 
-                          ['dev', 'prod', '']) or 'dev'
+    mode = get_user_choice(f"{Emoji.GEAR.value} Deployment mode (dev/qa/prod) [dev]: ", 
+                          ['dev', 'qa', 'prod', '']) or 'dev'
     
     # Confirm
     print(f"\n{Emoji.INFO.value} Summary:")
@@ -206,7 +211,7 @@ def deployment_operations():
     repo_path = Path(repo.get('folderPath', ''))
     branch = repo.get('checkoutBranch', 'main')
     env_path = repo.get('envPath')
-    mode = 'dev'  # Could be stored in JSON
+    mode = get_deployment_mode(repo)
     
     while True:
         print_header(f"{Emoji.TOOLS.value} Operations: {repo_name}")
@@ -364,7 +369,17 @@ def view_deployment_details(repo):
     print(f"Path: {repo.get('folderPath')}")
     print(f"URL: {repo.get('githubUrl')}")
     print(f"Branch: {repo.get('checkoutBranch')}")
+    print(f"Mode: {repo.get('deployMode', 'dev')}")
     print(f"Env File: {repo.get('envPath', 'None')}")
+    
+    # Show docker-compose file being used
+    repo_path = Path(repo.get('folderPath', ''))
+    mode = get_deployment_mode(repo)
+    compose_file, compose_path = resolve_docker_compose_file(repo_path, mode)
+    if compose_file:
+        print(f"Docker Compose: {compose_file}")
+    else:
+        print(f"Docker Compose: {Emoji.WARNING.value} Not found")
     
     image = repo.get('image', {})
     if image:
