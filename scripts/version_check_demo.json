@@ -1,0 +1,28 @@
+{
+    "installation_steps": [
+        {
+            "desc": "Check Docker Version",
+            "cmd": "docker --version"
+        },
+        {
+            "desc": "Check Docker Compose Version",
+            "cmd": "docker compose version"
+        },
+        {
+            "desc": "Check Python Version",
+            "cmd": "py --version"
+        },
+        {
+            "desc": "Check Node.js Version",
+            "cmd": "node --version"
+        },
+        {
+            "desc": "Check npm Version",
+            "cmd": "npm --version"
+        },
+        {
+            "desc": "Check Git Version",
+            "cmd": "git --version"
+        }
+    ]
+}
