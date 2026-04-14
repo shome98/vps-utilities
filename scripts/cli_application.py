@@ -73,8 +73,10 @@ def check_deployment_status(repo):
                 # Check container state
                 result = execute("", f"docker inspect --format='{{{{.State.Status}}}}' {container_id}", 
                                capture=True)
-                if result != 'running':
-                    return f"{Emoji.WARNING.value} Stopped"
+                # Docker inspect returns the status with quotes, so we need to strip them
+                status = result.strip("'\"")
+                if status != 'running':
+                    return f"{Emoji.WARNING.value} {status.title()}"
         return f"{Emoji.SUCCESS.value} Running"
     except:
         return f"{Emoji.WARNING.value} Unknown"
