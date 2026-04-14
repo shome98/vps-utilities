@@ -12,7 +12,8 @@ from script import (
     get_deployment_details, update_repo_tracking,
     deploy_docker, clone_and_checkout, resolve_docker_compose_file,
     load_installation_steps, execute_installation_steps,
-    get_all_containers_status, validate_batch_json
+    get_all_containers_status, validate_batch_json,
+    DEPLOYMENT_UTILS_DIR, APPS_DIR, SCRIPTS_DIR
 )
 
 # --- CLI Helper Functions ---
@@ -112,7 +113,7 @@ def list_deployments():
     """Display all deployments with their current status."""
     print_header(f"{Emoji.FOLDER.value} Deployment Dashboard")
     
-    repos = read_json('deployed_repos.json')
+    repos = read_json(DEPLOYMENT_UTILS_DIR / 'deployed_repos.json')
     
     if not repos:
         print(f"{Emoji.INFO.value} No deployments found.")
@@ -142,7 +143,7 @@ def show_services_status():
     """Display status of all running Docker services."""
     print_header(f"{Emoji.CONTAINER.value} Services Status")
     
-    repos = read_json('deployed_repos.json')
+    repos = read_json(DEPLOYMENT_UTILS_DIR / 'deployed_repos.json')
     
     if not repos:
         print(f"{Emoji.INFO.value} No deployments found.")
@@ -190,7 +191,7 @@ def show_services_status():
 
 def select_deployment():
     """Show deployments and let user select one."""
-    repos = read_json('deployed_repos.json')
+    repos = read_json(DEPLOYMENT_UTILS_DIR / 'deployed_repos.json')
     
     if not repos:
         print(f"{Emoji.INFO.value} No deployments found.")
@@ -246,7 +247,7 @@ def clone_and_deploy():
     print(f"  Mode: {mode}")
     
     # Add missing Emoji.QUESTION
-    if not get_yes_no(f"\n{Emoji.INFO.value} Proceed with deployment?"):
+    if not get_yes_no(f"\n{Emoji.QUESTION.value} Proceed with deployment?"):
         print(f"{Emoji.INFO.value} Deployment cancelled.")
         wait_for_enter()
         return
@@ -493,9 +494,9 @@ def remove_deployment(repo, repo_name):
                 print(f"{Emoji.WARNING.value} Could not stop/remove container {container_name} (may already be stopped)")
     
     # Remove from tracking
-    repos = read_json('deployed_repos.json')
+    repos = read_json(DEPLOYMENT_UTILS_DIR / 'deployed_repos.json')
     repos = [r for r in repos if r.get('folder_name') != repo_name]
-    write_json('deployed_repos.json', repos)
+    write_json(DEPLOYMENT_UTILS_DIR / 'deployed_repos.json', repos)
     
     print(f"{Emoji.SUCCESS.value} Deployment removed from tracking.")
     print(f"{Emoji.WARNING.value} Repository files still exist at: {repo.get('folderPath')}")
@@ -511,11 +512,15 @@ def batch_deploy_from_json():
         wait_for_enter()
         return
     
-    # Resolve path
+    # Resolve path: Try absolute, then deployment-utilities folder, then scripts folder
     batch_file = Path(json_path)
     if not batch_file.is_absolute():
-        scripts_dir = Path(__file__).resolve().parent
-        batch_file = scripts_dir / json_path
+        # Check deployment-utilities first
+        if (DEPLOYMENT_UTILS_DIR / json_path).exists():
+            batch_file = DEPLOYMENT_UTILS_DIR / json_path
+        else:
+            # Fallback to scripts dir
+            batch_file = SCRIPTS_DIR / json_path
     
     if not batch_file.exists():
         print(f"{Emoji.ERROR.value} File not found: {batch_file}")
@@ -613,11 +618,9 @@ def batch_operations_menu():
 def manage_installations():
     """Interactive installation steps manager."""
     # Define default installation files
-    scripts_dir = Path(__file__).resolve().parent
-    parent_dir = scripts_dir.parent
     default_installations = {
-        '1': {'name': 'Docker Installation', 'file': parent_dir / 'docker_installation_commands.json'},
-        '2': {'name': 'Coolify Installation', 'file': parent_dir / 'coolify_installation_manual_commands.json'},
+        '1': {'name': 'Docker Installation', 'file': DEPLOYMENT_UTILS_DIR / 'docker_installation_commands.json'},
+        '2': {'name': 'Coolify Installation', 'file': DEPLOYMENT_UTILS_DIR / 'coolify_installation_manual_commands.json'},
     }
     
     options = []
@@ -644,7 +647,10 @@ def manage_installations():
         
         install_file = Path(json_path)
         if not install_file.is_absolute():
-            install_file = scripts_dir / json_path
+            if (DEPLOYMENT_UTILS_DIR / json_path).exists():
+                install_file = DEPLOYMENT_UTILS_DIR / json_path
+            else:
+                install_file = SCRIPTS_DIR / json_path
     else:
         install_file = default_installations[choice]['file']
     
@@ -704,19 +710,7 @@ def main_menu():
             deployment_operations()
         elif choice == '6':
             manage_installations()
-        # elif choice == '7':
-        #     view_configuration()
-
-# def view_configuration():
-#     """View current configuration."""
-#     print_header(f"{Emoji.GEAR.value} Configuration")
-    
-#     config = read_json('commands_2.json')
-#     print(f"Config File: commands_2.json\n")
-#     print(f"Repositories: {len(config.get('repositories', []))}")
-#     print(f"Installation Steps: {len(config.get('installation_steps', []))}")
-    
-#     wait_for_enter()
+        
 
 if __name__ == "__main__":
     try:
