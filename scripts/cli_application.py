@@ -10,7 +10,9 @@ from script import (
     docker_build, docker_start, docker_rebuild_image,
     stop_service, restart_service, delete_service,
     get_deployment_details, update_repo_tracking,
-    deploy_docker, clone_and_checkout, resolve_docker_compose_file
+    deploy_docker, clone_and_checkout, resolve_docker_compose_file,
+    load_installation_steps, execute_installation_steps,
+    get_all_containers_status, validate_batch_json
 )
 
 # --- CLI Helper Functions ---
@@ -115,6 +117,56 @@ def list_deployments():
         print(f"{idx:<4} {name:<25} {status:<12} {branch:<15} {mode:<8} {service_count:<10}")
     
     print_separator()
+    wait_for_enter()
+
+def show_services_status():
+    """Display status of all running Docker services."""
+    print_header(f"{Emoji.CONTAINER.value} Services Status")
+    
+    repos = read_json('deployed_repos.json')
+    
+    if not repos:
+        print(f"{Emoji.INFO.value} No deployments found.")
+        wait_for_enter()
+        return
+    
+    # Track total stats
+    total_containers = 0
+    running_count = 0
+    
+    for repo in repos:
+        repo_name = repo.get('folder_name')
+        services = repo.get('services', [])
+        
+        if not services:
+            continue
+        
+        print(f"\n{Emoji.FOLDER.value} {repo_name}:")
+        print(f"  {'Name':<25} {'ID':<15} {'Status':<15}")
+        print(f"  {'-'*25} {'-'*15} {'-'*15}")
+        
+        for service in services:
+            container_id = service.get('id')
+            container_name = service.get('name')
+            
+            if container_id:
+                # Get container status
+                status = execute("", f"docker inspect --format='{{{{.State.Status}}}}' {container_id}", 
+                               capture=True).strip("'\"")
+                
+                status_emoji = Emoji.SUCCESS.value if status == 'running' else Emoji.WARNING.value
+                print(f"  {container_name:<25} {container_id[:12]:<15} {status_emoji} {status.title()}")
+                
+                total_containers += 1
+                if status == 'running':
+                    running_count += 1
+    
+    if total_containers == 0:
+        print(f"\n{Emoji.INFO.value} No services deployed.")
+    else:
+        print_separator()
+        print(f"\n{Emoji.INFO.value} Total: {running_count}/{total_containers} containers running")
+    
     wait_for_enter()
 
 def select_deployment():
@@ -434,6 +486,183 @@ def remove_deployment(repo, repo_name):
     print(f"{Emoji.SUCCESS.value} Deployment removed from tracking.")
     print(f"{Emoji.WARNING.value} Repository files still exist at: {repo.get('folderPath')}")
 
+def batch_deploy_from_json():
+    """Batch deploy multiple repositories from JSON file."""
+    print_header(f"{Emoji.BATCH.value} Batch Deployment from JSON")
+    
+    # Get JSON file path
+    json_path = input(f"{Emoji.FILE.value} Enter JSON file path: ").strip()
+    if not json_path:
+        print(f"{Emoji.ERROR.value} File path cannot be empty.")
+        wait_for_enter()
+        return
+    
+    # Resolve path
+    batch_file = Path(json_path)
+    if not batch_file.is_absolute():
+        scripts_dir = Path(__file__).resolve().parent
+        batch_file = scripts_dir / json_path
+    
+    if not batch_file.exists():
+        print(f"{Emoji.ERROR.value} File not found: {batch_file}")
+        wait_for_enter()
+        return
+    
+    # Read and validate JSON
+    try:
+        batch_data = read_json(batch_file)
+        if not isinstance(batch_data, list):
+            print(f"{Emoji.ERROR.value} JSON must be an array of repository objects.")
+            wait_for_enter()
+            return
+        
+        # Validate structure
+        is_valid, msg = validate_batch_json(batch_data)
+        if not is_valid:
+            print(f"{Emoji.ERROR.value} Invalid JSON structure: {msg}")
+            wait_for_enter()
+            return
+    except Exception as e:
+        print(f"{Emoji.ERROR.value} Invalid JSON file: {e}")
+        wait_for_enter()
+        return
+    
+    # Show summary
+    print(f"\n{Emoji.INFO.value} Found {len(batch_data)} repositories to deploy:\n")
+    for idx, repo in enumerate(batch_data, 1):
+        url = repo.get('githubUrl', 'N/A')
+        branch = repo.get('checkoutBranch', 'main')
+        mode = repo.get('deployMode', 'dev')
+        env = repo.get('envPath', 'None')
+        repo_name = url.split('/')[-1].replace('.git', '')
+        print(f"  {idx}. {repo_name} (branch: {branch}, mode: {mode}, env: {env})")
+    
+    if not get_yes_no(f"\n{Emoji.INFO.value} Proceed with batch deployment?"):
+        print(f"{Emoji.INFO.value} Batch deployment cancelled.")
+        wait_for_enter()
+        return
+    
+    # Execute deployments
+    success_count = 0
+    failed_count = 0
+    results = []
+    
+    for idx, repo_data in enumerate(batch_data, 1):
+        repo_name = repo_data.get('githubUrl', '').split('/')[-1].replace('.git', '')
+        print(f"\n{'='*60}")
+        print(f"{Emoji.ARROW.value} [{idx}/{len(batch_data)}] Deploying: {repo_name}")
+        print(f"{'='*60}")
+        
+        try:
+            mode = repo_data.get('deployMode', 'dev')
+            repo_path, name, has_changes, is_new, env = clone_and_checkout(repo_data, mode=mode)
+            
+            if is_new:
+                deploy_docker(repo_path, name, mode=mode, env_file=env)
+            
+            success_count += 1
+            results.append({'repo': repo_name, 'status': 'Success'})
+            print(f"\n{Emoji.SUCCESS.value} {repo_name} deployed successfully!")
+        except Exception as e:
+            failed_count += 1
+            results.append({'repo': repo_name, 'status': f'Failed: {e}'})
+            print(f"\n{Emoji.ERROR.value} {repo_name} deployment failed: {e}")
+    
+    # Show summary
+    print_separator()
+    print(f"\n{Emoji.INFO.value} Batch Deployment Summary:")
+    print(f"  Total: {len(batch_data)}")
+    print(f"  {Emoji.SUCCESS.value} Success: {success_count}")
+    print(f"  {Emoji.ERROR.value} Failed: {failed_count}")
+    
+    wait_for_enter()
+
+def batch_operations_menu():
+    """Submenu for batch operations."""
+    while True:
+        print_header(f"{Emoji.BATCH.value} Batch Operations")
+        
+        print("  1. Deploy from JSON File")
+        print("  2. Coming Soon: Export Deployments to JSON")
+        print("  0. Back to Main Menu")
+        
+        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-2): ",
+                                ['0', '1', '2'])
+        
+        if choice == '0':
+            break
+        elif choice == '1':
+            batch_deploy_from_json()
+        elif choice == '2':
+            print(f"{Emoji.INFO.value} Feature coming soon!")
+            wait_for_enter()
+
+def manage_installations():
+    """Interactive installation steps manager."""
+    print_header(f"{Emoji.TOOLS.value} Installation Manager")
+    
+    # Define default installation files
+    scripts_dir = Path(__file__).resolve().parent
+    parent_dir = scripts_dir.parent
+    default_installations = {
+        '1': {'name': 'Docker Installation', 'file': parent_dir / 'docker_installation_commands.json'},
+        '2': {'name': 'Coolify Installation', 'file': parent_dir / 'coolify_installation_manual_commands.json'},
+    }
+    
+    print(f"\n{Emoji.INFO.value} Select installation source:\n")
+    print("  Default Installations:")
+    for key, install in default_installations.items():
+        exists = "✓" if install['file'].exists() else "✗"
+        print(f"    {key}. {install['name']} [{exists}]")
+    
+    print(f"\n  Custom:")
+    print(f"    3. Provide custom JSON file path")
+    print(f"    0. Cancel")
+    
+    choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-3): ", 
+                            ['0', '1', '2', '3'])
+    
+    if choice == '0':
+        return
+    
+    # Get JSON file path
+    if choice == '3':
+        json_path = input(f"\n{Emoji.FILE.value} Enter JSON file path: ").strip()
+        if not json_path:
+            print(f"{Emoji.ERROR.value} Path cannot be empty.")
+            wait_for_enter()
+            return
+        
+        install_file = Path(json_path)
+        if not install_file.is_absolute():
+            install_file = scripts_dir / json_path
+    else:
+        install_file = default_installations[choice]['file']
+    
+    if not install_file.exists():
+        print(f"{Emoji.ERROR.value} File not found: {install_file}")
+        wait_for_enter()
+        return
+    
+    # Load installation steps
+    steps = load_installation_steps(install_file)
+    
+    if not steps:
+        print(f"{Emoji.WARNING.value} No installation steps found in file.")
+        wait_for_enter()
+        return
+    
+    # Execute steps with interactive controls
+    execute_installation_steps(
+        steps, 
+        interactive=True,
+        get_yes_no_fn=get_yes_no,
+        get_user_choice_fn=get_user_choice,
+        print_separator_fn=print_separator
+    )
+    
+    wait_for_enter()
+
 # --- Main Menu ---
 
 def main_menu():
@@ -442,14 +671,16 @@ def main_menu():
         print_header(f"{Emoji.DOCKER.value} Deployment Manager CLI")
         
         print("  1. List All Deployments (Dashboard)")
-        print("  2. Clone & Deploy New Repository")
-        print("  3. Manage Deployment (Start/Stop/Restart/Redeploy)")
-        print("  4. Batch Operations (Coming Soon)")
-        print("  5. View Configuration")
+        print("  2. Show Services Status")
+        print("  3. Clone & Deploy New Repository")
+        print("  4. Batch Operations")
+        print("  5. Manage Deployment (Start/Stop/Restart/Redeploy)")
+        print("  6. Installation Manager")
+        print("  7. View Configuration")
         print("  0. Exit")
         
-        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-5): ",
-                                [str(i) for i in range(6)])
+        choice = get_user_choice(f"\n{Emoji.ARROW.value} Select option (0-7): ",
+                                [str(i) for i in range(8)])
         
         if choice == '0':
             print(f"\n{Emoji.SUCCESS.value} Goodbye!")
@@ -457,13 +688,16 @@ def main_menu():
         elif choice == '1':
             list_deployments()
         elif choice == '2':
-            clone_and_deploy()
+            show_services_status()
         elif choice == '3':
-            deployment_operations()
+            clone_and_deploy()
         elif choice == '4':
-            print(f"{Emoji.INFO.value} Batch operations - Coming soon!")
-            wait_for_enter()
+            batch_operations_menu()
         elif choice == '5':
+            deployment_operations()
+        elif choice == '6':
+            manage_installations()
+        elif choice == '7':
             view_configuration()
 
 def view_configuration():
