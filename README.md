@@ -2,6 +2,10 @@
 
 Automated tools for managing VPS deployments, Docker installations, and GitHub repository orchestration.
 
+# About
+It uses docker files for deployment via docker. docker-compose file names must be `docker-compose.dev` or `docker-compose.prod` or `docker-compose.qa` with yaml and yml extension without this it fall backs to `docker-compose.yml` or `docker-compose.yaml`. May provide env file inside the folder that requires rebuild and restart otherwise can provide the env path.
+can check [crud-api-mongodb](https://github.com/shome98/crud-api-mongodb) for betetr understanding.
+
 ## Quick Start
 
 1. **Clone the repository** (Recommended branch: `dev-latest`):
@@ -49,7 +53,56 @@ newgrp docker
 
 ## Configuration
 
-Installation commands and repository tracking are stored in JSON files located in the `deployment-utilities/` directory:
+Installation commands and repository tracking and batch deployment are stored in JSON files located in the `deployment-utilities/` directory:
 - `docker_installation_commands.json`
+```json
+{
+    "installation_steps": [
+        {
+            "desc": "Update package index and install prerequisites",
+            "cmd": "sudo apt-get update && sudo apt-get install -y ca-certificates curl"
+        },
+        {
+            "desc": "Create directory for keyrings",
+            "cmd": "sudo install -m 0755 -d /etc/apt/keyrings"
+        },
+        {
+            "desc": "Download Docker's official GPG key",
+            "cmd": "sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc"
+        },
+        {
+            "desc": "Ensure proper permissions for the GPG key",
+            "cmd": "sudo chmod a+r /etc/apt/keyrings/docker.asc"
+        },
+        {
+            "desc": "Add the Docker repository to Apt sources",
+            "cmd": "echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo \"$VERSION_CODENAME\") stable\" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null"
+        },
+        {
+            "desc": "Update package index with new repository",
+            "cmd": "sudo apt-get update"
+        },
+        {
+            "desc": "Install Docker Engine and Compose plugins",
+            "cmd": "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin"
+        },
+        {
+            "desc": "Verify installation with Hello World",
+            "cmd": "sudo docker run --rm hello-world"
+        }
+    ]
+}
+```
+- `batch_deployment_example.json`
+```json
+[
+    {
+        "githubUrl": "git hub url here",
+        "checkoutBranch": "preferred checkout branch name here on git pull this branch will be used",
+        "envPath": "your env file",
+        "deployMode": "mode of deployment dev , prod, qa"
+    }
+]
+```
 - `coolify_installation_manual_commands.json`
 - `deployed_repos.json` (Auto-generated)
