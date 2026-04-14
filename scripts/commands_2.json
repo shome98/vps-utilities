@@ -2,7 +2,8 @@
     "repositories": [
         {
             "githubUrl": "https://github.com/shome98/crud-api-mongodb.git",
-            "checkoutBranch": "main"
+            "checkoutBranch": "main",
+            "envPath": "crud-api-mongodb.env"
         }
     ],
     "installation_steps": [
