@@ -23,16 +23,16 @@
         "deployMode": "dev",
         "image": {
             "name": "crud-api-mongodb-app",
-            "id": "ab65834ffc309d7347c52d5afc7585b410d261e22be041fc2a1582c46ea341f8"
+            "id": "dc15fe0bfb406ebe8208003fb3726bd6dec9ee3da25758e4b34531d2c99ec923"
         },
         "services": [
             {
                 "name": "app",
-                "id": "030c21b65453"
+                "id": "cd2c418149fe"
             },
             {
                 "name": "mongodb",
-                "id": "b3373d24c835"
+                "id": "43c610d78efd"
             }
         ]
     }
