@@ -725,8 +725,7 @@ def main_menu():
         {"id": "4", "name": "Batch Operations"},
         {"id": "5", "name": "Manage Deployment (Start/Stop/Restart/Redeploy)"},
         {"id": "6", "name": "Installation Manager"},
-        {"id": "7", "name": "View Configuration"},
-        {"id": "8", "name": "Manage Credentials (Tokens)"},
+        {"id": "7", "name": "Manage Credentials (Tokens)"},
         {"id": "0", "name": "Exit"}
     ]
     
@@ -749,21 +748,8 @@ def main_menu():
         elif choice == '6':
             manage_installations()
         elif choice == '7':
-            view_configuration()
-        elif choice == '8':
             manage_credentials()
 
-def view_configuration():
-    """View current configuration."""
-    print_header(f"{Emoji.GEAR.value} Configuration")
-    
-    config_path = DEPLOYMENT_UTILS_DIR / 'commands_2.json'
-    config = read_json(config_path)
-    print(f"Config File: {config_path.name}\n")
-    print(f"Repositories: {len(config.get('repositories', [])) if isinstance(config, dict) else 0}")
-    print(f"Installation Steps: {len(config.get('installation_steps', [])) if isinstance(config, dict) else 0}")
-    
-    wait_for_enter()
 
 def manage_credentials():
     """Menu to manage Git tokens and credentials."""

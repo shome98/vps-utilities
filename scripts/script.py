@@ -773,11 +773,5 @@ def run_all(config_file, mode='dev'):
     print(f"\n{Emoji.SUCCESS.value} All tasks completed successfully in {mode} mode!")
 
 
-if __name__ == "__main__":
-    # pass
-    deploy_mode = sys.argv[1] if len(sys.argv) > 1 else 'dev'
-    config_file = DEPLOYMENT_UTILS_DIR / 'commands_2.json'
-    run_all(config_file, mode=deploy_mode)
-    # repo_to_update = Path(__file__).resolve().parent.parent / "crud-api-mongodb"
-    # pull_latest(repo_to_update,'main')
-    # remove_image('sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e', image_name='old_image_name', force=True)
+# if __name__ == "__main__":
+#     pass
