@@ -37,6 +37,7 @@ class Emoji(Enum):
     START_CONTAINER = "▶️"
     STOP_CONTAINER = "⏹️"
     DELETE_CONTAINER = "🗑️"
+    BATCH = "📋"
     
     # File operations
     FILE = "📄"
@@ -331,6 +332,181 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
     print(f"      Running services: {len(services)}")
 
     return True
+
+
+# --- Installation Utilities ---
+
+def load_installation_steps(json_path):
+    """Load installation steps from a JSON file."""
+    path = Path(json_path)
+    if not path.exists():
+        print(f"{Emoji.ERROR.value} Installation file not found: {path}")
+        return []
+    
+    data = read_json(path)
+    
+    # Support both formats: {installation_steps: [...]} or [...]
+    if isinstance(data, list):
+        return data
+    elif isinstance(data, dict):
+        return data.get('installation_steps', [])
+    
+    return []
+
+def execute_installation_steps(steps, interactive=True, skip_prompt=False, get_yes_no_fn=None, get_user_choice_fn=None, print_separator_fn=None):
+    """Execute installation steps with optional interactive controls.
+    
+    Args:
+        steps: List of step objects with 'desc' and 'cmd'
+        interactive: If True, show choices (execute all, one-by-one, skip)
+        skip_prompt: If True and interactive, skip confirmation for each step
+        get_yes_no_fn: Function for yes/no prompts (from cli_application)
+        get_user_choice_fn: Function for user choice (from cli_application)
+        print_separator_fn: Function for printing separator (from cli_application)
+    """
+    if not steps:
+        print(f"{Emoji.WARNING.value} No installation steps to execute.")
+        return False
+    
+    # Show all steps first
+    print(f"\n{Emoji.INFO.value} Installation Steps ({len(steps)}):\n")
+    for idx, step in enumerate(steps, 1):
+        desc = step.get('desc', 'No description')
+        cmd = step.get('cmd', '')
+        print(f"  {idx}. {desc}")
+        print(f"     Command: {cmd}")
+        print()
+    
+    # Use provided functions or simple input fallback
+    if get_yes_no_fn is None:
+        def get_yes_no_fn(prompt):
+            return input(f"{prompt} (y/n): ").strip().lower() in ['y', 'yes']
+    
+    if get_user_choice_fn is None:
+        def get_user_choice_fn(prompt, choices):
+            while True:
+                choice = input(prompt).strip().lower()
+                if choice in choices:
+                    return choice
+                print(f"{Emoji.WARNING.value} Invalid choice.")
+    
+    if print_separator_fn is None:
+        def print_separator_fn():
+            print(f"\n{'-'*60}")
+    
+    if not interactive:
+        # Execute all automatically
+        if not get_yes_no_fn(f"{Emoji.INFO.value} Execute all {len(steps)} steps?"):
+            return False
+        
+        for idx, step in enumerate(steps, 1):
+            print(f"\n{Emoji.GEAR.value} [{idx}/{len(steps)}] {step.get('desc')}")
+            try:
+                execute(step.get('desc'), step.get('cmd'))
+            except SystemExit as e:
+                print(f"{Emoji.ERROR.value} Step {idx} failed: {e}")
+                if not get_yes_no_fn("Continue with remaining steps?"):
+                    return False
+        return True
+    
+    # Interactive mode - show execution choices
+    print(f"\n{Emoji.TOOLS.value} Execution Mode:")
+    print("  1. Execute All Steps")
+    print("  2. Execute Step-by-Step (with control)")
+    print("  3. Cancel")
+    
+    choice = get_user_choice_fn(f"\n{Emoji.ARROW.value} Select mode (1-3): ", ['1', '2', '3'])
+    
+    if choice == '3':
+        print(f"{Emoji.INFO.value} Installation cancelled.")
+        return False
+    
+    if choice == '1':
+        # Execute all
+        for idx, step in enumerate(steps, 1):
+            print(f"\n{Emoji.GEAR.value} [{idx}/{len(steps)}] {step.get('desc')}")
+            try:
+                execute(step.get('desc'), step.get('cmd'))
+            except SystemExit as e:
+                print(f"{Emoji.ERROR.value} Step {idx} failed: {e}")
+                if not get_yes_no_fn("Continue with remaining steps?"):
+                    return False
+        return True
+    
+    # Step-by-step mode
+    success_count = 0
+    skipped_count = 0
+    
+    for idx, step in enumerate(steps, 1):
+        print(f"\n{'-'*60}")
+        print(f"{Emoji.GEAR.value} Step {idx}/{len(steps)}: {step.get('desc')}")
+        print(f"Command: {step.get('cmd')}")
+        
+        if not skip_prompt:
+            action = get_user_choice_fn(f"\n{Emoji.ARROW.value} Action (execute/skip/quit): ", 
+                                   ['execute', 'skip', 'quit', 'e', 's', 'q'])
+            
+            if action in ['quit', 'q']:
+                print(f"{Emoji.INFO.value} Installation stopped by user.")
+                break
+            elif action in ['skip', 's']:
+                print(f"{Emoji.WARNING.value} Step {idx} skipped.")
+                skipped_count += 1
+                continue
+        
+        # Execute step
+        try:
+            execute(step.get('desc'), step.get('cmd'))
+            success_count += 1
+            print(f"{Emoji.SUCCESS.value} Step {idx} completed!")
+        except SystemExit as e:
+            print(f"{Emoji.ERROR.value} Step {idx} failed: {e}")
+            if not get_yes_no_fn("Continue with next step?"):
+                break
+    
+    print_separator_fn()
+    print(f"\n{Emoji.INFO.value} Installation Summary:")
+    print(f"  {Emoji.SUCCESS.value} Executed: {success_count}")
+    print(f"  {Emoji.WARNING.value} Skipped: {skipped_count}")
+    print(f"  {Emoji.ERROR.value} Failed: {len(steps) - success_count - skipped_count}")
+    
+    return success_count > 0
+
+
+# --- Container Status Utilities ---
+
+def get_all_containers_status():
+    """Get status of all containers from docker ps."""
+    try:
+        output = execute("", "docker ps --format '{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}'", 
+                        capture=True)
+        containers = []
+        for line in output.splitlines():
+            parts = line.split('|')
+            if len(parts) >= 4:
+                containers.append({
+                    'id': parts[0],
+                    'name': parts[1],
+                    'status': parts[2],
+                    'image': parts[3]
+                })
+        return containers
+    except:
+        return []
+
+
+def validate_batch_json(data):
+    """Validate batch deployment JSON structure."""
+    if not isinstance(data, list):
+        return False, "JSON must be an array"
+    
+    for idx, item in enumerate(data):
+        if not isinstance(item, dict):
+            return False, f"Item {idx+1} must be an object"
+        if 'githubUrl' not in item:
+            return False, f"Item {idx+1} missing 'githubUrl'"
+    
+    return True, "Valid"
 
 
 def has_git_changes(repo_path):
