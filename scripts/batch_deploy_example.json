@@ -1,8 +1,0 @@
-[
-    {
-        "githubUrl": "https://github.com/shome98/crud-api-mongodb.git",
-        "checkoutBranch": "main",
-        "envPath": "crud-api-mongodb.env",
-        "deployMode": "dev"
-    }
-]

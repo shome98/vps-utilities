@@ -6,6 +6,12 @@ import shutil
 import os
 from enum import Enum
 
+# --- Path Configuration ---
+SCRIPTS_DIR = Path(__file__).resolve().parent
+VPS_UTILS_DIR = SCRIPTS_DIR.parent
+DEPLOYMENT_UTILS_DIR = VPS_UTILS_DIR.parent
+APPS_DIR = DEPLOYMENT_UTILS_DIR.parent
+
 # --- Emoji Definitions ---
 
 class Emoji(Enum):
@@ -54,6 +60,7 @@ class Emoji(Enum):
     TOOLS = "🛠️"
     LINK = "🔗"
     KEY = "🔑"
+    QUESTION = "❓"
 
 # --- Utilities ---
 
@@ -63,32 +70,39 @@ def read_json(path):
     if not path.exists():
         return []
     try:
-        with open(path, 'r') as f:
+        with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
-    except json.JSONDecodeError:
+    except Exception:
         return []
 
 
 def write_json(path, data):
-    with open(path, 'w') as f:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=4)
 
 
-def execute(desc, cmd, cwd=None, capture=False):
+def execute(desc, cmd, cwd=None, capture=False, env=None):
     if not capture:
         print(f"{Emoji.GEAR.value} {desc}")
     try:
+        # Merge provided env with current process environment
+        full_env = os.environ.copy()
+        if env:
+            full_env.update(env)
+            
         if capture:
-            return subprocess.check_output(cmd, shell=True, cwd=cwd, text=True).strip()
-        subprocess.check_call(cmd, shell=True, cwd=cwd)
+            return subprocess.check_output(cmd, shell=True, cwd=cwd, text=True, env=full_env).strip()
+        subprocess.check_call(cmd, shell=True, cwd=cwd, env=full_env)
     except subprocess.CalledProcessError as e:
         if capture:
             return ""
         # Improved error reporting for git/docker failures
-        error_msg = f"\n{Emoji.ERROR.value} Error during: {desc}. Aborting."
+        error_msg = f"Error during: {desc}. Command: {cmd}"
         if e.output:
             error_msg += f"\nDetails: {e.output}"
-        sys.exit(error_msg)
+        raise RuntimeError(error_msg)
 
 # --- Docker Utilities ---
 
@@ -148,14 +162,21 @@ def load_env_file(env_file_path):
     return env_vars
 
 def resolve_env_file_path(env_file):
-    """Resolves env file path relative to scripts directory if not absolute."""
+    """Resolves env file path relative to deployment-utilities or scripts directory."""
     if not env_file:
         return None
     
     env_path = Path(env_file)
     if not env_path.is_absolute():
-        scripts_dir = Path(__file__).resolve().parent
-        env_path = scripts_dir / env_file
+        # Check deployment-utilities first
+        if (DEPLOYMENT_UTILS_DIR / env_file).exists():
+            env_path = DEPLOYMENT_UTILS_DIR / env_file
+        # Then check scripts dir
+        elif (SCRIPTS_DIR / env_file).exists():
+            env_path = SCRIPTS_DIR / env_file
+        else:
+            # Fallback to scripts dir path even if not exists
+            env_path = SCRIPTS_DIR / env_file
     
     return env_path
 
@@ -246,11 +267,7 @@ def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None
     # Load and set environment variables from env_file
     env_vars = load_and_apply_env_file(env_file)
     
-    # Merge with current environment
-    build_env = os.environ.copy()
-    build_env.update(env_vars)
-    
-    execute(f"{Emoji.BUILD.value} Building {repo_name} ({mode})", cmd, cwd=repo_path)
+    execute(f"{Emoji.BUILD.value} Building {repo_name} ({mode})", cmd, cwd=repo_path, env=env_vars)
     return True
 
 def docker_start(repo_path, repo_name, mode='dev', env_file=None):
@@ -263,6 +280,7 @@ def docker_start(repo_path, repo_name, mode='dev', env_file=None):
     
     # Copy env file to repo directory and load variables
     dest_env = copy_env_file_to_repo(env_file, repo_path)
+    env_vars = {}
     
     if dest_env:
         env_vars = load_env_file(dest_env)
@@ -270,7 +288,7 @@ def docker_start(repo_path, repo_name, mode='dev', env_file=None):
             print(f"  {Emoji.KEY.value} Loaded {len(env_vars)} environment variables")
     
     cmd = f"docker compose -f {file_name} up -d"
-    execute(f"{Emoji.START_CONTAINER.value} Starting {repo_name} ({mode})", cmd, cwd=repo_path)
+    execute(f"{Emoji.START_CONTAINER.value} Starting {repo_name} ({mode})", cmd, cwd=repo_path, env=env_vars)
     return True
 
 # let's change it a bit so on change first stop the corresponding docker containers and then remove the old image then rebuild and update it in the json as well again
@@ -549,8 +567,7 @@ def pull_latest(repo_path, branch):
         subprocess.check_call(
             f"git pull origin {branch}", shell=True, cwd=repo_path)
     except subprocess.CalledProcessError:
-        sys.exit(
-            f"\n{Emoji.ERROR.value} GIT PULL FAILED: Merge conflict or network error in {repo_path}. Aborting.")
+        raise RuntimeError(f"GIT PULL FAILED: Merge conflict or network error in {repo_path}")
 
 
 def git_clone(url, repo_name, parent_dir):
@@ -568,7 +585,10 @@ def git_checkout(repo_path, branch):
 # --- Core Logic ---
 
 
-def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, tracking_file='deployed_repos.json'):
+def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, tracking_file=None):
+    if tracking_file is None:
+        tracking_file = DEPLOYMENT_UTILS_DIR / 'deployed_repos.json'
+    
     data = read_json(tracking_file)
     entry = next((item for item in data if item.get(
         'folder_name') == repo_name), None)
@@ -627,7 +647,7 @@ def clone_and_checkout(repo_data, mode='dev'):
     env_path = repo_data.get('envPath')  # Optional env file path
     repo_name = url.split('/')[-1].replace('.git', '')
 
-    parent_dir = Path(__file__).resolve().parent.parent
+    parent_dir = APPS_DIR
     repo_path = parent_dir / repo_name
 
     is_new_clone = False
@@ -711,7 +731,8 @@ def run_all(config_file, mode='dev'):
 if __name__ == "__main__":
     # pass
     deploy_mode = sys.argv[1] if len(sys.argv) > 1 else 'dev'
-    run_all('commands_2.json', mode=deploy_mode)
+    config_file = DEPLOYMENT_UTILS_DIR / 'commands_2.json'
+    run_all(config_file, mode=deploy_mode)
     # repo_to_update = Path(__file__).resolve().parent.parent / "crud-api-mongodb"
     # pull_latest(repo_to_update,'main')
     # remove_image('sha256:9d699b033067922774e3ab8cf38eb6e5cd9f40c28bebec386df11a07e1d0e47e', image_name='old_image_name', force=True)
