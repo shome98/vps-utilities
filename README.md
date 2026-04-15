@@ -107,7 +107,6 @@ Installation commands and repository tracking and batch deployment are stored in
 ]
 ```
 - `credentials.json` (Auto-generated/Manual)
-- `coolify_installation_manual_commands.json`
 - `deployed_repos.json` (Auto-generated)
 
 ## Private Repository Setup

@@ -655,8 +655,7 @@ def manage_installations():
     """Interactive installation steps manager."""
     # Define default installation files
     default_installations = {
-        '1': {'name': 'Docker Installation', 'file': DEPLOYMENT_UTILS_DIR / 'docker_installation_commands.json'},
-        '2': {'name': 'Coolify Installation', 'file': DEPLOYMENT_UTILS_DIR / 'coolify_installation_manual_commands.json'},
+        '1': {'name': 'Docker Installation', 'file': DEPLOYMENT_UTILS_DIR / 'docker_installation_commands.json'}
     }
     
     options = []
@@ -664,7 +663,7 @@ def manage_installations():
         exists_mark = "✓" if install['file'].exists() else "✗"
         options.append({"id": key, "name": f"{install['name']} [{exists_mark}]"})
     
-    options.append({"id": "3", "name": "Provide custom JSON file path"})
+    options.append({"id": "2", "name": "Provide custom JSON file path"})
     options.append({"id": "0", "name": "Cancel"})
     
     choice = display_menu(f"{Emoji.TOOLS.value} Installation Manager", options, 
@@ -674,7 +673,7 @@ def manage_installations():
         return
     
     # Get JSON file path
-    if choice == '3':
+    if choice == '2':
         json_path = input(f"\n{Emoji.FILE.value} Enter JSON file path: ").strip()
         if not json_path:
             print(f"{Emoji.ERROR.value} Path cannot be empty.")
