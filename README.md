@@ -4,7 +4,7 @@ Automated tools for managing VPS deployments, Docker installations, and GitHub r
 
 # About
 It uses docker files for deployment via docker. docker-compose file names must be `docker-compose.dev` or `docker-compose.prod` or `docker-compose.qa` with yaml and yml extension without this it fall backs to `docker-compose.yml` or `docker-compose.yaml`. May provide env file inside the folder that requires rebuild and restart otherwise can provide the env path.
-can check [crud-api-mongodb](https://github.com/shome98/crud-api-mongodb) for betetr understanding.
+can check [crud-api-mongodb](https://github.com/shome98/crud-api-mongodb) for better understanding.
 
 ## Quick Start
 
