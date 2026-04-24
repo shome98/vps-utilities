@@ -317,7 +317,7 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
 
     # Step 1: Get current image info before stopping containers
     print(f"  {Emoji.INFO.value} [1/5] Capturing current deployment details...")
-    old_image_info, old_services = get_deployment_details(repo_path)
+    old_image_info, old_services, _ = get_deployment_details(repo_path)
     old_image_id = old_image_info.get('id', '') if old_image_info else ''
 
     # Step 2: Stop running containers
@@ -351,8 +351,8 @@ def docker_rebuild_image(repo_path, repo_name, mode='dev', env_file=None):
 
     # Step 5: Update tracking with new image info and services
     print(f"  {Emoji.SAVE.value} [5/5] Updating deployment tracking...")
-    image_info, services = get_deployment_details(repo_path)
-    update_repo_tracking(repo_name, image_info=image_info, services=services)
+    image_info, services, port = get_deployment_details(repo_path)
+    update_repo_tracking(repo_name, image_info=image_info, services=services, port=port)
 
     print(f"  {Emoji.SUCCESS.value} Successfully rebuilt and deployed {repo_name}")
     if image_info:
@@ -628,7 +628,7 @@ def git_checkout(repo_path, branch):
 # --- Core Logic ---
 
 
-def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, tracking_file=None):
+def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, port=None, tracking_file=None):
     if tracking_file is None:
         tracking_file = DEPLOYMENT_UTILS_DIR / 'deployed_repos.json'
     
@@ -655,6 +655,8 @@ def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None
         entry['image'] = image_info
     if services is not None:
         entry['services'] = services
+    if port is not None:
+        entry['port'] = port
 
     write_json(tracking_file, data)
 
@@ -665,12 +667,39 @@ def get_deployment_details(repo_path):
 
     services = []
     primary_image = {}
+    main_port = None
 
     if output:
-        for line in output.splitlines():
+        # Docker compose ps can return a list of objects or one per line
+        data = []
+        try:
+            # Try to parse as a single JSON array first
+            parsed_output = json.loads(output)
+            data = parsed_output if isinstance(parsed_output, list) else [parsed_output]
+        except json.JSONDecodeError:
+            # Fallback to line by line
+            for line in output.splitlines():
+                try:
+                    if line.strip():
+                        data.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+
+        for s in data:
             try:
-                s = json.loads(line)
                 container_id = s.get("ID")
+                service_name = s.get("Service")
+                
+                # Get ports from Publishers
+                ports = []
+                publishers = s.get("Publishers") or []
+                for pub in publishers:
+                    if pub.get("PublishedPort"):
+                        ports.append(str(pub.get("PublishedPort")))
+                
+                if ports and main_port is None:
+                    main_port = ports[0]
+
                 if not primary_image:
                     img_id_cmd = f"docker inspect --format='{{{{.Image}}}}' {container_id}"
                     image_id = execute("", img_id_cmd, capture=True)
@@ -678,10 +707,14 @@ def get_deployment_details(repo_path):
                     cleaned_image_id = clean_image_id(image_id)
                     primary_image = {"name": s.get("Image"), "id": cleaned_image_id}
 
-                services.append({"name": s.get("Service"), "id": container_id})
-            except (json.JSONDecodeError, Exception):
+                service_entry = {"name": service_name, "id": container_id}
+                if ports:
+                    service_entry["port"] = ", ".join(ports)
+                services.append(service_entry)
+            except Exception:
                 continue
-    return primary_image, services
+                
+    return primary_image, services, main_port
 
 
 def clone_and_checkout(repo_data, mode='dev'):
@@ -751,8 +784,8 @@ def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
     docker_build(repo_path, repo_name, mode, env_file=env_file)
     docker_start(repo_path, repo_name, mode, env_file=env_file)
 
-    image_info, services = get_deployment_details(repo_path)
-    update_repo_tracking(repo_name, image_info=image_info, services=services, mode=mode)
+    image_info, services, port = get_deployment_details(repo_path)
+    update_repo_tracking(repo_name, image_info=image_info, services=services, mode=mode, port=port)
 
 
 def run_all(config_file, mode='dev'):

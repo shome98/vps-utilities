@@ -123,20 +123,21 @@ def list_deployments():
         return
     
     # Display table header
-    print(f"{'#':<4} {'Name':<25} {'Status':<12} {'Branch':<15} {'Mode':<8} {'Services':<10}")
-    print(f"{'-'*4} {'-'*25} {'-'*12} {'-'*15} {'-'*8} {'-'*10}")
+    print(f"{'#':<4} {'Name':<20} {'Status':<12} {'Port':<8} {'Branch':<12} {'Mode':<6} {'Svc':<4}")
+    print(f"{'-'*4} {'-'*20} {'-'*12} {'-'*8} {'-'*12} {'-'*6} {'-'*4}")
     
     for idx, repo in enumerate(repos, 1):
         name = repo.get('folder_name', 'Unknown')
         branch = repo.get('checkoutBranch', 'N/A')
         services = repo.get('services', [])
         mode = repo.get('deployMode', 'dev')
+        port = repo.get('port', 'N/A')
         
         # Check actual Docker status
         status = check_deployment_status(repo)
         service_count = len(services) if services else 0
         
-        print(f"{idx:<4} {name:<25} {status:<12} {branch:<15} {mode:<8} {service_count:<10}")
+        print(f"{idx:<4} {name:<20} {status:<12} {port:<8} {branch:<12} {mode:<6} {service_count:<4}")
     
     print_separator()
     wait_for_enter()
@@ -377,8 +378,8 @@ def start_deployment(repo, repo_path, repo_name, mode, env_path):
     docker_start(repo_path, repo_name, mode=mode, env_file=env_path)
     
     # Update tracking
-    image_info, services = get_deployment_details(repo_path)
-    update_repo_tracking(repo_name, image_info=image_info, services=services)
+    image_info, services, port = get_deployment_details(repo_path)
+    update_repo_tracking(repo_name, image_info=image_info, services=services, port=port)
     
     print(f"{Emoji.SUCCESS.value} Service started!")
 
@@ -476,6 +477,7 @@ def view_deployment_details(repo):
     print(f"Branch: {repo.get('checkoutBranch')}")
     print(f"Mode: {repo.get('deployMode', 'dev')}")
     print(f"Env File: {repo.get('envPath', 'None')}")
+    print(f"Port: {repo.get('port', 'None')}")
     
     # Show docker-compose file being used
     repo_path = Path(repo.get('folderPath', ''))
