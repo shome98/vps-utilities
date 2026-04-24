@@ -17,6 +17,7 @@ from script import (
     resolve_authenticated_url, get_credentials, get_token_by_id,
     CREDENTIALS_FILE
 )
+from commands import Command
 
 # --- CLI Helper Functions ---
 
@@ -95,7 +96,7 @@ def check_deployment_status(repo):
             container_id = service.get('id')
             if container_id:
                 # Check container state
-                result = execute("", f"docker inspect --format='{{{{.State.Status}}}}' {container_id}", 
+                result = execute("", Command.DOCKER_INSPECT_STATUS.value.format(target=container_id), 
                                capture=True)
                 # Docker inspect returns the status with quotes, so we need to strip them
                 status = result.strip("'\"")
@@ -174,7 +175,7 @@ def show_services_status():
             
             if container_id:
                 # Get container status
-                status = execute("", f"docker inspect --format='{{{{.State.Status}}}}' {container_id}", 
+                status = execute("", Command.DOCKER_INSPECT_STATUS.value.format(target=container_id), 
                                capture=True).strip("'\"")
                 
                 status_emoji = Emoji.SUCCESS.value if status == 'running' else Emoji.WARNING.value
@@ -462,7 +463,7 @@ def view_logs(repo, repo_path):
     print(f"\n{Emoji.INFO.value} Showing logs for {service_name} (Ctrl+C to exit):\n")
     
     try:
-        execute("", f"docker compose -f docker-compose.yml logs -f {service_name}", 
+        execute("", Command.DOCKER_COMPOSE_LOGS.value.format(file="docker-compose.yml", service=service_name), 
                cwd=repo_path)
     except KeyboardInterrupt:
         print(f"\n{Emoji.INFO.value} Logs closed.")
@@ -504,14 +505,13 @@ def view_git_status(repo_path):
     """Show git status and recent commits."""
     print_header(f"{Emoji.INFO.value} Git Status")
     
-    # Show status
     print(f"\n{Emoji.FILE.value} Working Tree Status:")
-    status = execute("", "git status --short", cwd=repo_path, capture=True)
+    status = execute("", Command.GIT_STATUS_SHORT.value, cwd=repo_path, capture=True)
     print(status if status else "  Clean (no changes)")
     
     # Show recent commits
     print(f"\n{Emoji.BRANCH.value} Recent Commits:")
-    commits = execute("", "git log --oneline -5", cwd=repo_path, capture=True)
+    commits = execute("", Command.GIT_LOG_HISTORY.value, cwd=repo_path, capture=True)
     print(commits)
 
 def remove_deployment(repo, repo_name):

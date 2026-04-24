@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 import os
 from enum import Enum
+from commands import Command
 
 # --- Path Configuration ---
 SCRIPTS_DIR = Path(__file__).resolve().parent
@@ -122,21 +123,24 @@ def stop_service(container_id, container_name=None):
     target = container_id if container_id else container_name
     identifier = container_name if container_name else (
         container_id[:12] if container_id else "unknown")
-    execute(f"{Emoji.STOP_CONTAINER.value} Stopping container: {identifier}", f"docker stop {target}")
+    execute(f"{Emoji.STOP_CONTAINER.value} Stopping container: {identifier}", 
+            Command.DOCKER_STOP.value.format(target=target))
 
 def delete_service(container_id, container_name=None):
     """Deletes a Docker container by ID or name. Prefers ID if provided."""
     target = container_id if container_id else container_name
     identifier = container_name if container_name else (
         container_id[:12] if container_id else "unknown")
-    execute(f"{Emoji.DELETE_CONTAINER.value} Deleting container: {identifier}", f"docker rm {target}")
+    execute(f"{Emoji.DELETE_CONTAINER.value} Deleting container: {identifier}", 
+            Command.DOCKER_RM.value.format(target=target))
 
 def restart_service(container_id, container_name=None):
     """Restarts a Docker container by ID or name. Prefers ID if provided."""
     target = container_id if container_id else container_name
     identifier = container_name if container_name else (
         container_id[:12] if container_id else "unknown")
-    execute(f"{Emoji.RESTART.value} Restarting container: {identifier}", f"docker restart {target}")
+    execute(f"{Emoji.RESTART.value} Restarting container: {identifier}", 
+            Command.DOCKER_RESTART.value.format(target=target))
 
 
 def remove_image(image_id, image_name=None, force=False):
@@ -146,7 +150,8 @@ def remove_image(image_id, image_name=None, force=False):
     
     identifier = image_name if image_name else (target[:12] if target else "unknown")
     flag = "-f" if force else ""
-    execute(f"{Emoji.IMAGE.value} Removing image: {identifier}", f"docker rmi {flag} {target}")
+    execute(f"{Emoji.IMAGE.value} Removing image: {identifier}", 
+            Command.DOCKER_RMI.value.format(flags=flag, target=target))
 
 def clean_image_id(image_id):
     """Cleans image ID by removing 'sha256:' prefix and quotes."""
@@ -272,7 +277,7 @@ def docker_build(repo_path, repo_name, mode='dev', no_cache=False, env_file=None
         return False
     
     cache_flag = "--no-cache" if no_cache else ""
-    cmd = f"docker compose -f {file_name} build {cache_flag}".strip()
+    cmd = Command.DOCKER_COMPOSE_BUILD.value.format(file=file_name, flags=cache_flag).strip()
     
     # Load and set environment variables from env_file
     env_vars = load_and_apply_env_file(env_file)
@@ -297,7 +302,7 @@ def docker_start(repo_path, repo_name, mode='dev', env_file=None):
         if env_vars:
             print(f"  {Emoji.KEY.value} Loaded {len(env_vars)} environment variables")
     
-    cmd = f"docker compose -f {file_name} up -d"
+    cmd = Command.DOCKER_COMPOSE_UP.value.format(file=file_name)
     execute(f"{Emoji.START_CONTAINER.value} Starting {repo_name} ({mode})", cmd, cwd=repo_path, env=env_vars)
     return True
 
@@ -512,7 +517,7 @@ def execute_installation_steps(steps, interactive=True, skip_prompt=False, get_y
 def get_all_containers_status():
     """Get status of all containers from docker ps."""
     try:
-        output = execute("", "docker ps --format '{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}'", 
+        output = execute("", Command.DOCKER_PS_FORMATTED.value, 
                         capture=True)
         containers = []
         for line in output.splitlines():
@@ -547,7 +552,7 @@ def has_git_changes(repo_path):
     """Checks if there are uncommitted changes or if the repository was recently updated."""
     try:
         # Check for uncommitted changes (modified, added, deleted files)
-        status = execute("", "git status --porcelain",
+        status = execute("", Command.GIT_STATUS_PORCELAIN.value,
                          cwd=repo_path, capture=True)
         if status:
             return True
@@ -555,7 +560,7 @@ def has_git_changes(repo_path):
         # Check if there are any commits that differ from the last known state
         # Using git log to see if there are recent commits (last 24 hours)
         recent_commits = execute(
-            "", "git log --oneline --since='24 hours ago' -1", cwd=repo_path, capture=True)
+            "", Command.GIT_LOG_RECENT.value, cwd=repo_path, capture=True)
         if recent_commits:
             return True
 
@@ -604,10 +609,10 @@ def pull_latest(repo_path, branch, token=None):
     
     try:
         # fetch and pull
-        subprocess.check_call("git fetch origin", shell=True, cwd=repo_path)
+        subprocess.check_call(Command.GIT_FETCH.value, shell=True, cwd=repo_path)
         # We use --no-rebase to ensure a standard pull; check for success
         subprocess.check_call(
-            f"git pull origin {branch}", shell=True, cwd=repo_path)
+            Command.GIT_PULL.value.format(branch=branch), shell=True, cwd=repo_path)
     except subprocess.CalledProcessError:
         raise RuntimeError(f"GIT PULL FAILED: Merge conflict or network error in {repo_path}")
 
@@ -616,14 +621,14 @@ def git_clone(url, repo_name, parent_dir, token=None):
     """Clones a repository from the given URL to the specified parent directory."""
     auth_url = resolve_authenticated_url(url, token)
     execute(f"{Emoji.CLONE.value} Cloning {repo_name}",
-            f"git clone {auth_url} {repo_name}", cwd=parent_dir)
+            Command.GIT_CLONE.value.format(url=auth_url, name=repo_name), cwd=parent_dir)
     return parent_dir / repo_name
 
 
 def git_checkout(repo_path, branch):
     """Checks out to the specified branch in the given repository path."""
     execute(f"{Emoji.CHECKOUT.value} Checking out {Emoji.BRANCH.value} {branch} in {repo_path.name}",
-            f"git checkout {branch}", cwd=repo_path)
+            Command.GIT_CHECKOUT.value.format(branch=branch), cwd=repo_path)
 
 # --- Core Logic ---
 
@@ -662,7 +667,7 @@ def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None
 
 
 def get_deployment_details(repo_path):
-    cmd = "docker compose ps --format json"
+    cmd = Command.DOCKER_COMPOSE_PS.value
     output = execute("", cmd, cwd=repo_path, capture=True)
 
     services = []
@@ -701,7 +706,7 @@ def get_deployment_details(repo_path):
                     main_port = ports[0]
 
                 if not primary_image:
-                    img_id_cmd = f"docker inspect --format='{{{{.Image}}}}' {container_id}"
+                    img_id_cmd = Command.DOCKER_INSPECT_IMAGE.value.format(target=container_id)
                     image_id = execute("", img_id_cmd, capture=True)
                     # Clean the image ID by removing sha256: prefix and quotes
                     cleaned_image_id = clean_image_id(image_id)
@@ -739,7 +744,7 @@ def clone_and_checkout(repo_data, mode='dev'):
         # If it exists, get commit hash before pull
         try:
             commit_before = execute(
-                "", f"git rev-parse HEAD", cwd=repo_path, capture=True)
+                "", Command.GIT_REV_PARSE.value, cwd=repo_path, capture=True)
         except:
             commit_before = ""
 
@@ -750,7 +755,7 @@ def clone_and_checkout(repo_data, mode='dev'):
     # Get commit hash after pull
     try:
         commit_after = execute(
-            "", f"git rev-parse HEAD", cwd=repo_path, capture=True)
+            "", Command.GIT_REV_PARSE.value, cwd=repo_path, capture=True)
     except:
         commit_after = ""
     
