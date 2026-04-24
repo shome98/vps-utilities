@@ -405,20 +405,40 @@ def stop_deployment(repo):
     print(f"{Emoji.SUCCESS.value} Services stopped!")
 
 def restart_deployment(repo, repo_path, repo_name):
-    """Restart all containers."""
+    """Restart specific or all containers."""
     services = repo.get('services', [])
     if not services:
         print(f"{Emoji.WARNING.value} No services to restart.")
         return
     
-    print(f"{Emoji.RESTART.value} Restarting {len(services)} container(s)...")
-    for service in services:
+    target_services = []
+    
+    if len(services) > 1:
+        options = [{"id": str(idx), "name": service.get('name')} 
+                   for idx, service in enumerate(services, 1)]
+        options.append({"id": str(len(services) + 1), "name": "Restart All Services"})
+        options.append({"id": "0", "name": "Cancel"})
+        
+        choice = display_menu(f"{Emoji.RESTART.value} Select Service to Restart", options)
+        
+        if choice == '0':
+            return
+        
+        if int(choice) == len(services) + 1:
+            target_services = services
+        else:
+            target_services = [services[int(choice) - 1]]
+    else:
+        target_services = services
+    
+    print(f"{Emoji.RESTART.value} Restarting {len(target_services)} container(s)...")
+    for service in target_services:
         container_id = service.get('id')
         container_name = service.get('name')
         if container_id or container_name:
             restart_service(container_id, container_name)
     
-    print(f"{Emoji.SUCCESS.value} Services restarted!")
+    print(f"{Emoji.SUCCESS.value} Restart completed!")
 
 def redeploy(repo, repo_path, repo_name, mode, env_path):
     """Rebuild and redeploy."""
