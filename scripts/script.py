@@ -633,7 +633,7 @@ def git_checkout(repo_path, branch):
 # --- Core Logic ---
 
 
-def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, port=None, tracking_file=None):
+def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None, env_path=None, mode=None, image_info=None, services=None, port=None, reverse_proxy=None, tracking_file=None):
     if tracking_file is None:
         tracking_file = DEPLOYMENT_UTILS_DIR / 'deployed_repos.json'
     
@@ -662,6 +662,8 @@ def update_repo_tracking(repo_name, repo_path=None, github_url=None, branch=None
         entry['services'] = services
     if port is not None:
         entry['port'] = port
+    if reverse_proxy is not None:
+        entry['reverse_proxy'] = reverse_proxy
 
     write_json(tracking_file, data)
 
@@ -791,6 +793,101 @@ def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
 
     image_info, services, port = get_deployment_details(repo_path)
     update_repo_tracking(repo_name, image_info=image_info, services=services, mode=mode, port=port)
+
+
+def generate_nginx_config(domain, subdomain, port):
+    """Generates a standard Nginx reverse proxy configuration block."""
+    server_name = f"{subdomain}.{domain}" if subdomain else domain
+    config = f"""server {{
+    listen 80;
+    server_name {server_name};
+
+    location / {{
+        proxy_pass http://127.0.0.1:{port};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }}
+}}
+"""
+    return config
+
+
+def setup_nginx_proxy(repo_name, domain, subdomain, port, email=None, run_ssl=False):
+    """Sets up Nginx reverse proxy and optionally SSL via Certbot."""
+    server_name = f"{subdomain}.{domain}" if subdomain else domain
+    config = generate_nginx_config(domain, subdomain, port)
+    
+    # Path setup
+    available_path = f"/etc/nginx/sites-available/{server_name}.conf"
+    enabled_path = f"/etc/nginx/sites-enabled/{server_name}.conf"
+    
+    # Use a temporary file to write config
+    temp_conf = Path(f"/tmp/{server_name}.conf")
+    try:
+        # Write config locally first
+        with open(temp_conf, "w") as f:
+            f.write(config)
+            
+        # Move to sites-available using sudo
+        execute(f"{Emoji.GEAR.value} Moving config to sites-available", f"sudo mv {temp_conf} {available_path}")
+        
+        # Symlink to sites-enabled
+        execute(f"{Emoji.LINK.value} Enabling Nginx site", f"sudo ln -sf {available_path} {enabled_path}")
+        
+        # Test config
+        execute(f"{Emoji.GEAR.value} Testing Nginx configuration", Command.NGINX_TEST.value)
+        
+        # Reload Nginx
+        execute(f"{Emoji.RESTART.value} Reloading Nginx", Command.NGINX_RELOAD.value)
+        
+        ssl_enabled = False
+        if run_ssl and email:
+            print(f"{Emoji.GEAR.value} Running Certbot for {server_name}...")
+            execute(f"Issuing SSL certificate", 
+                   Command.CERTBOT_NGINX.value.format(domain=server_name, email=email))
+            ssl_enabled = True
+            
+        # Update tracking
+        proxy_info = {
+            "domain": domain,
+            "subdomain": subdomain,
+            "port": port,
+            "ssl_enabled": ssl_enabled,
+            "email": email,
+            "server_name": server_name
+        }
+        update_repo_tracking(repo_name, reverse_proxy=proxy_info)
+        
+        print(f"{Emoji.SUCCESS.value} Nginx proxy setup completed for {server_name}")
+        return True
+    except Exception as e:
+        if temp_conf.exists():
+            temp_conf.unlink()
+        raise RuntimeError(f"Nginx setup failed: {e}")
+
+
+def remove_nginx_proxy(repo_name, server_name):
+    """Removes Nginx proxy configuration for a deployment."""
+    available_path = f"/etc/nginx/sites-available/{server_name}.conf"
+    enabled_path = f"/etc/nginx/sites-enabled/{server_name}.conf"
+    
+    print(f"{Emoji.STOP.value} Removing Nginx configuration for {server_name}...")
+    
+    try:
+        execute(f"Removing enabled link", Command.NGINX_RM_CONF.value.format(path=enabled_path))
+        execute(f"Removing available config", Command.NGINX_RM_CONF.value.format(path=available_path))
+        
+        # Reload Nginx
+        execute("Reloading Nginx", Command.NGINX_RELOAD.value)
+        
+        # Update tracking
+        update_repo_tracking(repo_name, reverse_proxy={})
+        return True
+    except Exception as e:
+        print(f"{Emoji.WARNING.value} Error removing Nginx config: {e}")
+        return False
 
 
 def run_all(config_file, mode='dev'):

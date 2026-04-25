@@ -106,6 +106,37 @@ Installation commands and repository tracking and batch deployment are stored in
     }
 ]
 ```
+- `ngnix_certbot_installation.json`
+```json
+{
+    "installation_steps": [
+        {
+            "desc": "Update package list",
+            "cmd": "sudo apt-get update"
+        },
+        {
+            "desc": "Install Nginx",
+            "cmd": "sudo apt-get install -y nginx"
+        },
+        {
+            "desc": "Install Certbot and Nginx plugin",
+            "cmd": "sudo apt-get install -y certbot python3-certbot-nginx"
+        },
+        {
+            "desc": "Ensure Nginx is running",
+            "cmd": "sudo systemctl start nginx"
+        },
+        {
+            "desc": "Enable Nginx to start on boot",
+            "cmd": "sudo systemctl enable nginx"
+        },
+        {
+            "desc": "Check Nginx status",
+            "cmd": "sudo systemctl status nginx --no-pager"
+        }
+    ]
+}
+```
 - `credentials.json` (Auto-generated/Manual)
 - `deployed_repos.json` (Auto-generated)
 

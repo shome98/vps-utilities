@@ -15,7 +15,7 @@ from script import (
     get_all_containers_status, validate_batch_json,
     DEPLOYMENT_UTILS_DIR, APPS_DIR, SCRIPTS_DIR,
     resolve_authenticated_url, get_credentials, get_token_by_id,
-    CREDENTIALS_FILE
+    CREDENTIALS_FILE, setup_nginx_proxy, remove_nginx_proxy
 )
 from commands import Command
 
@@ -124,8 +124,8 @@ def list_deployments():
         return
     
     # Display table header
-    print(f"{'#':<4} {'Name':<20} {'Status':<12} {'Port':<8} {'Branch':<12} {'Mode':<6} {'Svc':<4}")
-    print(f"{'-'*4} {'-'*20} {'-'*12} {'-'*8} {'-'*12} {'-'*6} {'-'*4}")
+    print(f"{'#':<4} {'Name':<20} {'Status':<12} {'Port':<8} {'Proxy':<25} {'Mode':<6}")
+    print(f"{'-'*4} {'-'*20} {'-'*12} {'-'*8} {'-'*25} {'-'*6}")
     
     for idx, repo in enumerate(repos, 1):
         name = repo.get('folder_name', 'Unknown')
@@ -134,11 +134,11 @@ def list_deployments():
         mode = repo.get('deployMode', 'dev')
         port = repo.get('port', 'N/A')
         
-        # Check actual Docker status
-        status = check_deployment_status(repo)
-        service_count = len(services) if services else 0
+        proxy = repo.get('reverse_proxy', {}).get('server_name', 'None')
+        if proxy != 'None' and repo.get('reverse_proxy', {}).get('ssl_enabled'):
+            proxy = f"🔒 {proxy}"
         
-        print(f"{idx:<4} {name:<20} {status:<12} {port:<8} {branch:<12} {mode:<6} {service_count:<4}")
+        print(f"{idx:<4} {name:<20} {status:<12} {port:<8} {proxy:<25} {mode:<6}")
     
     print_separator()
     wait_for_enter()
@@ -677,7 +677,8 @@ def manage_installations():
     """Interactive installation steps manager."""
     # Define default installation files
     default_installations = {
-        '1': {'name': 'Docker Installation', 'file': DEPLOYMENT_UTILS_DIR / 'docker_installation_commands.json'}
+        '1': {'name': 'Docker Installation', 'file': DEPLOYMENT_UTILS_DIR / 'docker_installation_commands.json'},
+        '2': {'name': 'Nginx + Certbot Installation', 'file': DEPLOYMENT_UTILS_DIR / 'nginx_certbot_installation.json'}
     }
     
     options = []
@@ -685,7 +686,7 @@ def manage_installations():
         exists_mark = "✓" if install['file'].exists() else "✗"
         options.append({"id": key, "name": f"{install['name']} [{exists_mark}]"})
     
-    options.append({"id": "2", "name": "Provide custom JSON file path"})
+    options.append({"id": "3", "name": "Provide custom JSON file path"})
     options.append({"id": "0", "name": "Cancel"})
     
     choice = display_menu(f"{Emoji.TOOLS.value} Installation Manager", options, 
@@ -695,7 +696,7 @@ def manage_installations():
         return
     
     # Get JSON file path
-    if choice == '2':
+    if choice == '3':
         json_path = input(f"\n{Emoji.FILE.value} Enter JSON file path: ").strip()
         if not json_path:
             print(f"{Emoji.ERROR.value} Path cannot be empty.")
@@ -747,6 +748,7 @@ def main_menu():
         {"id": "5", "name": "Manage Deployment (Start/Stop/Restart/Redeploy)"},
         {"id": "6", "name": "Installation Manager"},
         {"id": "7", "name": "Manage Credentials (Tokens)"},
+        {"id": "8", "name": "Setup/Manage Reverse Proxy (Nginx + SSL)"},
         {"id": "0", "name": "Exit"}
     ]
     
@@ -770,6 +772,103 @@ def main_menu():
             manage_installations()
         elif choice == '7':
             manage_credentials()
+        elif choice == '8':
+            manage_reverse_proxy()
+
+
+def manage_reverse_proxy():
+    """Flow to manage Nginx reverse proxy for deployments."""
+    repo = select_deployment()
+    if not repo:
+        return
+    
+    repo_name = repo.get('folder_name')
+    proxy_info = repo.get('reverse_proxy', {})
+    
+    print_header(f"{Emoji.LINK.value} Reverse Proxy Manager: {repo_name}")
+    
+    if proxy_info and proxy_info.get('server_name'):
+        print(f"Current Status: {Emoji.SUCCESS.value} Configured")
+        print(f"Domain: {proxy_info.get('server_name')}")
+        print(f"Internal Port: {proxy_info.get('port')}")
+        print(f"SSL Enabled: {'Yes' if proxy_info.get('ssl_enabled') else 'No'}")
+        
+        options = [
+            {"id": "1", "name": "Update Proxy Config"},
+            {"id": "2", "name": "Remove Proxy Config"},
+            {"id": "0", "name": "Back"}
+        ]
+    else:
+        print(f"Current Status: {Emoji.WARNING.value} Not Configured")
+        options = [
+            {"id": "1", "name": "Setup New Reverse Proxy"},
+            {"id": "0", "name": "Back"}
+        ]
+    
+    choice = display_menu(f"Reverse Proxy Operations", options)
+    
+    if choice == '0':
+        return
+    
+    if choice == '1':
+        setup_reverse_proxy_flow(repo)
+    elif choice == '2':
+        if get_yes_no(f"Are you sure you want to remove Nginx config for {repo_name}?"):
+            remove_nginx_proxy(repo_name, proxy_info.get('server_name'))
+            print(f"{Emoji.SUCCESS.value} Configuration removed.")
+            wait_for_enter()
+
+def setup_reverse_proxy_flow(repo):
+    """Wizard to setup Nginx reverse proxy."""
+    repo_name = repo.get('folder_name')
+    default_port = repo.get('port', '8080')
+    
+    print_header(f"{Emoji.TOOLS.value} Setup Reverse Proxy: {repo_name}")
+    
+    # 1. Ask for Domain
+    domain = input(f"{Emoji.LINK.value} Base Domain (e.g., example.com): ").strip()
+    if not domain:
+        print(f"{Emoji.ERROR.value} Domain is required.")
+        wait_for_enter()
+        return
+        
+    # 2. Ask for Subdomain
+    default_sub = repo_name.replace('_', '-').lower()
+    subdomain = input(f"{Emoji.BRANCH.value} Subdomain (default: {default_sub}, press Enter): ").strip()
+    if subdomain == "":
+        subdomain = default_sub
+        
+    # 3. Confirm Port
+    port = input(f"{Emoji.GEAR.value} Internal Port (default: {default_port}): ").strip() or default_port
+    
+    # 4. SSL
+    run_ssl = get_yes_no(f"{Emoji.KEY.value} Enable SSL (HTTPS) via Certbot?")
+    email = ""
+    if run_ssl:
+        email = input(f"{Emoji.INFO.value} Email for Let's Encrypt notifications: ").strip()
+        if not email:
+            print(f"{Emoji.ERROR.value} Email is required for SSL.")
+            wait_for_enter()
+            return
+
+    # Summary
+    server_name = f"{subdomain}.{domain}" if subdomain else domain
+    print_separator()
+    print(f"\n{Emoji.INFO.value} Summary:")
+    print(f"  Repo: {repo_name}")
+    print(f"  Server Name: {server_name}")
+    print(f"  Proxy Pass: http://127.0.0.1:{port}")
+    print(f"  SSL: {'Yes' if run_ssl else 'No'}")
+    if email:
+        print(f"  Email: {email}")
+        
+    if get_yes_no("\nProceed with Nginx configuration?"):
+        try:
+            setup_nginx_proxy(repo_name, domain, subdomain, port, email, run_ssl)
+            wait_for_enter()
+        except Exception as e:
+            print(f"\n{Emoji.ERROR.value} Setup failed: {e}")
+            wait_for_enter()
 
 
 def manage_credentials():

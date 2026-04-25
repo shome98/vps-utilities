@@ -32,3 +32,9 @@ class Command(Enum):
     GIT_LOG_RECENT = "git log --oneline --since='24 hours ago' -1"
     GIT_LOG_HISTORY = "git log --oneline -5"
     GIT_STATUS_SHORT = "git status --short"
+    
+    # Nginx & Certbot
+    NGINX_RELOAD = "sudo systemctl reload nginx"
+    NGINX_TEST = "sudo nginx -t"
+    CERTBOT_NGINX = "sudo certbot --nginx -d {domain} --non-interactive --agree-tos -m {email}"
+    NGINX_RM_CONF = "sudo rm -f {path}"
