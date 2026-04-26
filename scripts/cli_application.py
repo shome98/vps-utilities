@@ -124,8 +124,8 @@ def list_deployments():
         return
     
     # Display table header
-    print(f"{'#':<4} {'Name':<20} {'Status':<12} {'Port':<8} {'Proxy':<25} {'Mode':<6}")
-    print(f"{'-'*4} {'-'*20} {'-'*12} {'-'*8} {'-'*25} {'-'*6}")
+    print(f"{'#':<4} {'Name':<35} {'Status':<12} {'Port':<8} {'Proxy':<25} {'Mode':<8} {'Branch':<15} {'Services':<10}")
+    print(f"{'-'*4} {'-'*35} {'-'*12} {'-'*8} {'-'*25} {'-'*8} {'-'*15} {'-'*10}")
     
     for idx, repo in enumerate(repos, 1):
         name = repo.get('folder_name', 'Unknown')
@@ -133,12 +133,14 @@ def list_deployments():
         services = repo.get('services', [])
         mode = repo.get('deployMode', 'dev')
         port = repo.get('port', 'N/A')
+        status = check_deployment_status(repo)
+        service_count = len(services) if services else 0
         
         proxy = repo.get('reverse_proxy', {}).get('server_name', 'None')
         if proxy != 'None' and repo.get('reverse_proxy', {}).get('ssl_enabled'):
             proxy = f"🔒 {proxy}"
         
-        print(f"{idx:<4} {name:<20} {status:<12} {port:<8} {proxy:<25} {mode:<6}")
+        print(f"{idx:<4} {name:<35} {status:<12} {port:<8} {proxy:<25} {mode:<8} {branch:<15} {service_count:<10}")
     
     print_separator()
     wait_for_enter()
