@@ -795,29 +795,141 @@ def deploy_docker(repo_path, repo_name, mode='dev', env_file=None):
     update_repo_tracking(repo_name, image_info=image_info, services=services, mode=mode, port=port)
 
 
-def generate_nginx_config(domain, subdomain, port):
-    """Generates a standard Nginx reverse proxy configuration block."""
-    server_name = f"{subdomain}.{domain}" if subdomain else domain
-    config = f"""server {{
-    listen 80;
-    server_name {server_name};
-
-    location / {{
-        proxy_pass http://127.0.0.1:{port};
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }}
-}}
+def ensure_nginx_rate_limit_zones():
+    """Ensures that Nginx rate limit zones are defined in conf.d."""
+    limits_content = """limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+limit_req_zone $binary_remote_addr zone=frontend_limit:10m rate=20r/s;
 """
+    try:
+        execute("Initializing Nginx rate limit zones", 
+                Command.NGINX_CREATE_LIMITS.value.format(content=limits_content))
+        execute("Testing Nginx configuration", Command.NGINX_TEST.value)
+        execute("Reloading Nginx", Command.NGINX_RELOAD.value)
+    except Exception as e:
+        print(f"{Emoji.WARNING.value} Could not initialize rate limit zones: {e}")
+
+def generate_nginx_config(domain, subdomain, port, options=None):
+    """Generates an extensive Nginx reverse proxy configuration block."""
+    if options is None:
+        options = {}
+    
+    server_name = f"{subdomain}.{domain}" if subdomain else domain
+    service_type = options.get('type', 'api')  # 'api' or 'frontend'
+    rate_limit = options.get('rate_limit', {'enabled': True, 'burst': 50, 'excluded_paths': []})
+    cors = options.get('cors', {'enabled': service_type == 'api', 'origins': ['*']})
+    
+    # Upstream definition
+    upstream_name = f"{server_name.replace('.', '_')}_upstream"
+    
+    config = f"upstream {upstream_name} {{\n"
+    config += f"    server 127.0.0.1:{port};\n"
+    config += f"    keepalive 32;\n"
+    config += "}\n\n"
+    
+    config += f"server {{\n"
+    config += f"    listen 80;\n"
+    config += f"    server_name {server_name};\n\n"
+    
+    # Security headers
+    config += "    # Security headers\n"
+    config += "    add_header X-Frame-Options \"SAMEORIGIN\" always;\n"
+    config += "    add_header X-Content-Type-Options \"nosniff\" always;\n"
+    config += "    add_header X-XSS-Protection \"1; mode=block\" always;\n"
+    config += "    add_header Referrer-Policy \"strict-origin-when-cross-origin\" always;\n\n"
+    
+    # Excluded paths from rate limiting (Webhooks)
+    for path in rate_limit.get('excluded_paths', []):
+        config += f"    # No rate limiting for {path}\n"
+        config += f"    location {path} {{\n"
+        config += f"        proxy_pass http://{upstream_name};\n"
+        config += "        proxy_http_version 1.1;\n"
+        config += "        proxy_set_header Host $host;\n"
+        config += "        proxy_set_header X-Real-IP $remote_addr;\n"
+        config += "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+        config += "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+        
+        if cors.get('enabled'):
+            origins = ", ".join(cors.get('origins', ['*']))
+            config += f"        add_header Access-Control-Allow-Origin \"{origins}\" always;\n"
+            config += "        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS' always;\n"
+            config += "        add_header Access-Control-Allow-Headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;\n"
+        config += "    }\n\n"
+
+    # Main location
+    config += "    location / {\n"
+    config += f"        proxy_pass http://{upstream_name};\n"
+    config += "        proxy_http_version 1.1;\n"
+    config += "        proxy_set_header Host $host;\n"
+    config += "        proxy_set_header X-Real-IP $remote_addr;\n"
+    config += "        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n"
+    config += "        proxy_set_header X-Forwarded-Proto $scheme;\n"
+    config += "        proxy_set_header Upgrade $http_upgrade;\n"
+    config += "        proxy_set_header Connection \"upgrade\";\n\n"
+    
+    # Rate limiting
+    if rate_limit.get('enabled'):
+        zone = "api_limit" if service_type == 'api' else "frontend_limit"
+        burst = rate_limit.get('burst', 50 if service_type == 'api' else 20)
+        config += f"        # Rate limiting\n"
+        config += f"        limit_req zone={zone} burst={burst} nodelay;\n\n"
+    
+    # CORS
+    if cors.get('enabled'):
+        origins = ", ".join(cors.get('origins', ['*']))
+        config += "        # CORS headers\n"
+        config += f"        add_header Access-Control-Allow-Origin \"{origins}\" always;\n"
+        config += "        add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS' always;\n"
+        config += "        add_header Access-Control-Allow-Headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization' always;\n"
+        config += "        add_header Access-Control-Expose-Headers 'Content-Length,Content-Range' always;\n"
+        config += "        add_header Access-Control-Allow-Credentials 'true' always;\n\n"
+        
+        config += "        # Handle preflight requests\n"
+        config += "        if ($request_method = 'OPTIONS') {\n"
+        config += f"            add_header Access-Control-Allow-Origin \"{origins}\";\n"
+        config += "            add_header Access-Control-Allow-Methods 'GET, POST, PUT, DELETE, OPTIONS';\n"
+        config += "            add_header Access-Control-Allow-Headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';\n"
+        config += "            add_header Access-Control-Allow-Credentials 'true';\n"
+        config += "            add_header Access-Control-Max-Age 1728000;\n"
+        config += "            add_header Content-Type 'text/plain; charset=utf-8';\n"
+        config += "            add_header Content-Length 0;\n"
+        config += "            return 204;\n"
+        config += "        }\n"
+    
+    # Static caching for Frontend
+    if service_type == 'frontend':
+        config += "        # Caching for static assets\n"
+        config += "        location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {\n"
+        config += f"            proxy_pass http://{upstream_name};\n"
+        config += "            expires 30d;\n"
+        config += "            add_header Cache-Control \"public, immutable\";\n"
+        config += "        }\n"
+    
+    config += "    }\n\n"
+    
+    # Health check
+    config += "    # Health check\n"
+    config += "    location /health {\n"
+    config += f"        proxy_pass http://{upstream_name};\n"
+    config += "        proxy_http_version 1.1;\n"
+    config += "        proxy_set_header Host $host;\n"
+    config += "        access_log off;\n"
+    config += "    }\n"
+    
+    config += "}\n"
     return config
 
 
-def setup_nginx_proxy(repo_name, domain, subdomain, port, email=None, run_ssl=False):
+def setup_nginx_proxy(repo_name, domain, subdomain, port, email=None, run_ssl=False, options=None):
     """Sets up Nginx reverse proxy and optionally SSL via Certbot."""
+    if options is None:
+        options = {}
+        
     server_name = f"{subdomain}.{domain}" if subdomain else domain
-    config = generate_nginx_config(domain, subdomain, port)
+    
+    # Ensure rate limit zones are initialized
+    ensure_nginx_rate_limit_zones()
+    
+    config = generate_nginx_config(domain, subdomain, port, options)
     
     # Path setup
     available_path = f"/etc/nginx/sites-available/{server_name}.conf"
@@ -856,7 +968,10 @@ def setup_nginx_proxy(repo_name, domain, subdomain, port, email=None, run_ssl=Fa
             "port": port,
             "ssl_enabled": ssl_enabled,
             "email": email,
-            "server_name": server_name
+            "server_name": server_name,
+            "type": options.get('type', 'api'),
+            "rate_limit": options.get('rate_limit', {}),
+            "cors": options.get('cors', {})
         }
         update_repo_tracking(repo_name, reverse_proxy=proxy_info)
         

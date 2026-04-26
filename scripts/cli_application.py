@@ -819,52 +819,95 @@ def manage_reverse_proxy():
             wait_for_enter()
 
 def setup_reverse_proxy_flow(repo):
-    """Wizard to setup Nginx reverse proxy."""
+    """Wizard to setup Nginx reverse proxy with extensive options."""
     repo_name = repo.get('folder_name')
     default_port = repo.get('port', '8080')
     
     print_header(f"{Emoji.TOOLS.value} Setup Reverse Proxy: {repo_name}")
     
-    # 1. Ask for Domain
-    domain = input(f"{Emoji.LINK.value} Base Domain (e.g., example.com): ").strip()
-    if not domain:
-        print(f"{Emoji.ERROR.value} Domain is required.")
-        wait_for_enter()
-        return
+    # 1. Service Type
+    type_options = [
+        {"id": "1", "name": "API Service (Standard API headers, higher rate limit)"},
+        {"id": "2", "name": "Frontend Application (Static asset caching, lower rate limit)"}
+    ]
+    type_choice = display_menu("Select Service Type", type_options)
+    service_type = "api" if type_choice == "1" else "frontend"
+
+    # 2. Domain Setup
+    print(f"\n{Emoji.INFO.value} Domain Configuration:")
+    domain = input(f"  {Emoji.LINK.value} Base Domain (e.g., example.com): ").strip()
+    while not domain:
+        print(f"  {Emoji.ERROR.value} Domain is required.")
+        domain = input(f"  {Emoji.LINK.value} Base Domain (e.g., example.com): ").strip()
         
-    # 2. Ask for Subdomain
     default_sub = repo_name.replace('_', '-').lower()
-    subdomain = input(f"{Emoji.BRANCH.value} Subdomain (default: {default_sub}, press Enter): ").strip()
+    subdomain = input(f"  {Emoji.BRANCH.value} Subdomain (default: {default_sub}, press Enter): ").strip()
     if subdomain == "":
         subdomain = default_sub
         
-    # 3. Confirm Port
-    port = input(f"{Emoji.GEAR.value} Internal Port (default: {default_port}): ").strip() or default_port
+    # 3. Internal Port
+    port = input(f"\n{Emoji.GEAR.value} Internal Port (default: {default_port}): ").strip() or default_port
     
-    # 4. SSL
-    run_ssl = get_yes_no(f"{Emoji.KEY.value} Enable SSL (HTTPS) via Certbot?")
+    # 4. Rate Limiting
+    print(f"\n{Emoji.GEAR.value} Rate Limiting Configuration:")
+    enable_rate_limit = get_yes_no("  Enable default rate limiting?")
+    rate_limit_options = {"enabled": enable_rate_limit, "burst": 50 if service_type == 'api' else 20, "excluded_paths": []}
+    
+    if enable_rate_limit:
+        burst = input(f"  Burst size (default: {rate_limit_options['burst']}): ").strip()
+        if burst:
+            rate_limit_options['burst'] = int(burst)
+            
+        excluded = input("  Excluded paths (e.g., /webhooks/stripe, /api/public) [None]: ").strip()
+        if excluded:
+            rate_limit_options['excluded_paths'] = [p.strip() for p in excluded.split(',')]
+            
+    # 5. CORS (for API)
+    cors_options = {"enabled": False, "origins": ["*"]}
+    if service_type == "api":
+        print(f"\n{Emoji.GEAR.value} CORS Configuration:")
+        if get_yes_no("  Enable CORS headers?"):
+            cors_options["enabled"] = True
+            origins = input("  Allowed Origins (comma separated, default: *): ").strip()
+            if origins:
+                cors_options["origins"] = [o.strip() for o in origins.split(',')]
+
+    # 6. SSL
+    print(f"\n{Emoji.KEY.value} SSL Configuration:")
+    run_ssl = get_yes_no("  Enable SSL (HTTPS) via Certbot?")
     email = ""
     if run_ssl:
-        email = input(f"{Emoji.INFO.value} Email for Let's Encrypt notifications: ").strip()
-        if not email:
-            print(f"{Emoji.ERROR.value} Email is required for SSL.")
-            wait_for_enter()
-            return
+        email = input("  Email for Let's Encrypt notifications: ").strip()
+        while not email:
+            print(f"  {Emoji.ERROR.value} Email is required for SSL.")
+            email = input("  Email for Let's Encrypt notifications: ").strip()
+
+    # Final Options Dictionary
+    options = {
+        "type": service_type,
+        "rate_limit": rate_limit_options,
+        "cors": cors_options
+    }
 
     # Summary
     server_name = f"{subdomain}.{domain}" if subdomain else domain
     print_separator()
-    print(f"\n{Emoji.INFO.value} Summary:")
+    print(f"\n{Emoji.INFO.value} Configuration Summary:")
     print(f"  Repo: {repo_name}")
+    print(f"  Service Type: {service_type.upper()}")
     print(f"  Server Name: {server_name}")
     print(f"  Proxy Pass: http://127.0.0.1:{port}")
+    print(f"  Rate Limit: {'Enabled (Burst: ' + str(rate_limit_options['burst']) + ')' if enable_rate_limit else 'Disabled'}")
+    if rate_limit_options['excluded_paths']:
+        print(f"  Excluded Paths: {', '.join(rate_limit_options['excluded_paths'])}")
+    print(f"  CORS: {'Enabled (' + ', '.join(cors_options['origins']) + ')' if cors_options['enabled'] else 'Disabled'}")
     print(f"  SSL: {'Yes' if run_ssl else 'No'}")
     if email:
         print(f"  Email: {email}")
         
     if get_yes_no("\nProceed with Nginx configuration?"):
         try:
-            setup_nginx_proxy(repo_name, domain, subdomain, port, email, run_ssl)
+            setup_nginx_proxy(repo_name, domain, subdomain, port, email, run_ssl, options=options)
             wait_for_enter()
         except Exception as e:
             print(f"\n{Emoji.ERROR.value} Setup failed: {e}")

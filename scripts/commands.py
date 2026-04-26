@@ -38,3 +38,4 @@ class Command(Enum):
     NGINX_TEST = "sudo nginx -t"
     CERTBOT_NGINX = "sudo certbot --nginx -d {domain} --non-interactive --agree-tos -m {email}"
     NGINX_RM_CONF = "sudo rm -f {path}"
+    NGINX_CREATE_LIMITS = "echo '{content}' | sudo tee /etc/nginx/conf.d/rate_limits.conf"
